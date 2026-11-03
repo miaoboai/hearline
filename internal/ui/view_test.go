@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,6 +213,132 @@ func TestLineMetaAndStamp(t *testing.T) {
 	if got := lineMeta(pipeline.Line{Language: "zh", Start: time.Second}); got != "中文 · 00:01.0" {
 		t.Fatalf("meta %q", got)
 	}
+}
+
+func TestChromeLayout(t *testing.T) {
+	idle := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	if !exactText(idle, "开始听") || exactText(idle, "停止") || exactText(idle, "刷新") || exactText(idle, "更多") || exactText(idle, "纪要") {
+		t.Fatalf("idle texts %v", idle.Texts())
+	}
+	if !idle.HasText(emptyHint) {
+		t.Fatal("idle empty hint missing")
+	}
+	listen := g.NewTester(sampleListening().view, frameWidth, frameHeight)
+	if !exactText(listen, "停止") || exactText(listen, "开始听") || exactText(listen, "刷新") || exactText(listen, "更多") || listen.HasText("音源") {
+		t.Fatalf("listening texts %v", listen.Texts())
+	}
+	if !listen.HasText("正在听 · 00:12") || !listen.HasText("还在听这一句") {
+		t.Fatalf("listening stage %v", listen.Texts())
+	}
+	settings := g.NewTester(sampleSettings().view, frameWidth, frameHeight)
+	if settings.HasText("模型路径") || settings.HasText("线程") || exactText(settings, "本机") || exactText(settings, "远程") {
+		t.Fatalf("settings leaked advanced or a local tier %v", settings.Texts())
+	}
+	if !settings.HasText(privacyAudio) || !settings.HasText(privacyOff) || !settings.HasText("Hearline 0.1") {
+		t.Fatalf("about %v", settings.Texts())
+	}
+	if r, ok := settings.Find("Hearline 0.1"); !ok || r.Y > float32(frameHeight)-80 {
+		t.Fatalf("about sits off the first screen: %+v", r)
+	}
+	open := sampleSettingsAdvanced()
+	advanced := g.NewTester(open.view, frameWidth, frameHeight)
+	if !advanced.HasText("模型路径") || !advanced.HasText("线程") {
+		t.Fatal("advanced did not reveal model path and threads")
+	}
+	remote := sampleListen()
+	remote.llm.Backend = "remote"
+	remote.llm.Remote = config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}
+	withNotes := g.NewTester(remote.view, frameWidth, frameHeight)
+	if !exactText(withNotes, "纪要") {
+		t.Fatal("configured remote should show a 纪要 link")
+	}
+	narrow := g.Render(sampleEmpty().view, 720, frameHeight, 1)
+	if narrow == nil || narrow.Bounds().Dx() != 720 {
+		t.Fatal("narrow frame missing")
+	}
+}
+
+func TestPrimaryPaintsAccent(t *testing.T) {
+	img := g.Render(sampleEmpty().view, frameWidth, frameHeight, 1)
+	if img == nil {
+		t.Fatal("nil")
+	}
+	want := g.Hex(HexAccent)
+	if !hasNear(img, int(want.R), int(want.G), int(want.B), 8) {
+		t.Fatal("primary did not paint the accent token")
+	}
+	states := g.Render(samplePrimaryStates().view, 880, 220, 1)
+	if states == nil {
+		t.Fatal("nil states")
+	}
+	for _, hex := range []string{HexAccent, HexAccentHover, HexAccentPressed, HexAccentDisabled} {
+		c := g.Hex(hex)
+		if !hasNear(states, int(c.R), int(c.G), int(c.B), 6) {
+			t.Fatalf("primary collage missing %s", hex)
+		}
+	}
+}
+
+func TestPrimaryHoverPressed(t *testing.T) {
+	tt := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	r, ok := tt.Find("开始听")
+	if !ok {
+		t.Fatal("no primary")
+	}
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.Move(x, y)
+	hover := g.Hex(HexAccentHover)
+	if !hasNear(tt.Image(), int(hover.R), int(hover.G), int(hover.B), 8) {
+		t.Fatal("hover did not paint accent.hover")
+	}
+	tt.Press(x, y)
+	pressed := g.Hex(HexAccentPressed)
+	if !hasNear(tt.Image(), int(pressed.R), int(pressed.G), int(pressed.B), 8) {
+		t.Fatal("pressed did not paint accent.pressed")
+	}
+	tt.Release(x, y)
+}
+
+func TestPrimaryFocusRing(t *testing.T) {
+	tt := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	for i := 0; i < 8; i++ {
+		tt.Key(0, g.KeyTab)
+		if tt.Focused("开始听") {
+			break
+		}
+	}
+	if !tt.Focused("开始听") {
+		t.Fatalf("tab did not reach 开始听; texts %v", tt.Texts())
+	}
+	focus := g.Hex(HexFocus)
+	if !hasNear(tt.Image(), int(focus.R), int(focus.G), int(focus.B), 12) {
+		t.Fatal("focus ring did not paint the focus token")
+	}
+}
+
+func exactText(tt *g.Tester, s string) bool {
+	for _, text := range tt.Texts() {
+		if text == s {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNear(img *image.RGBA, r, gch, b, tol int) bool {
+	if img == nil {
+		return false
+	}
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += 2 {
+		for x := bounds.Min.X; x < bounds.Max.X; x += 2 {
+			rr, gg, bb, _ := img.At(x, y).RGBA()
+			if near8(int(rr>>8), r, tol) && near8(int(gg>>8), gch, tol) && near8(int(bb>>8), b, tol) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func near8(got, want, tol int) bool {

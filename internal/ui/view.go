@@ -13,19 +13,51 @@ import (
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
+const emptyHint = "安静的环境，更准确的听写体验。"
+
 func (m *Model) view(c *g.Context) {
 	if c == nil || m == nil {
 		return
 	}
 	c.SetTheme(hearlineTheme())
+	if m.Gallery == galleryStates {
+		m.primaryCollage(c)
+		return
+	}
 	m.shortcuts(c)
-	g.Column(c).Fill().Padding(24).Gap(14).Background(colorGround).Children(func() {
+	g.Column(c).Fill().Padding(PadWindow).Gap(GapBlock).Background(colorGround).Children(func() {
 		m.header(c)
 		if m.Panel == panelSettings {
 			m.settingsPage(c)
 			return
 		}
 		m.listenPage(c)
+	})
+	if m.Panel != panelSettings {
+		m.notesOverlay(c)
+		m.confirmQuitDialog(c)
+	}
+}
+
+func (m *Model) primaryCollage(c *g.Context) {
+	type shot struct {
+		name string
+		look btnLook
+	}
+	shots := []shot{
+		{"default", lookDefault},
+		{"hover", lookHover},
+		{"pressed", lookPressed},
+		{"disabled", lookDisabled},
+	}
+	g.Row(c).Fill().Padding(Space3).Gap(Space3).AlignItems(g.Center).Justify(g.Center).Background(colorGround).Children(func() {
+		for _, shot := range shots {
+			shot := shot
+			g.Column(c).Gap(GapInline).AlignItems(g.Center).Children(func() {
+				text(c, shot.name, TypeCaption, colorMuted)
+				paintPrimary(c, "state-"+shot.name, "开始听", false, shot.look)
+			})
+		}
 	})
 }
 
@@ -40,6 +72,15 @@ func (m *Model) shortcuts(c *g.Context) {
 			m.ConfirmQuit = false
 			return
 		}
+		if m.ExportOpen {
+			m.ExportOpen = false
+			return
+		}
+		if m.NotesOpen || m.Panel == panelNotes {
+			m.NotesOpen = false
+			m.Panel = panelListen
+			return
+		}
 		if m.Panel != panelListen {
 			m.Panel = panelListen
 			return
@@ -51,75 +92,73 @@ func (m *Model) shortcuts(c *g.Context) {
 }
 
 func (m *Model) header(c *g.Context) {
-	g.Row(c).AlignItems(g.Center).Gap(16).Shrink(0).Children(func() {
-		g.Column(c).Gap(1).Shrink(0).Children(func() {
-			g.Text(c, "Hearline").FontSize(20).FontWeight(650).TextColor(colorInk)
-			g.Text(c, "本地听写").FontSize(12).TextColor(colorQuiet)
+	g.Row(c).MinHeight(HeaderH).AlignItems(g.Center).Gap(GapInline).Shrink(0).Children(func() {
+		g.Column(c).Gap(0).Shrink(0).Children(func() {
+			text(c, "Hearline", TypeBrand, colorInk).SingleLine()
+			text(c, "本地听写", TypeSub, colorQuiet).SingleLine()
 		})
 		m.sessionChip(c)
 		g.Spacer(c)
-		if m.headerButton(c, "notes", "纪要", m.Panel == panelNotes) {
-			if m.Panel == panelNotes {
-				m.Panel = panelListen
-			} else {
+		if m.notesReady() {
+			if _, clicked := paintLink(c, "notes", "纪要", false); clicked {
 				m.openNotes()
 			}
 		}
-		if m.headerButton(c, "settings", "设置", m.Panel == panelSettings) {
+		if _, clicked := paintLink(c, "settings", "设置", false); clicked {
 			if m.Panel == panelSettings {
 				m.Panel = panelListen
 			} else {
 				m.Panel = panelSettings
 				m.ConfirmQuit = false
+				m.NotesOpen = false
 			}
 		}
 		m.exportMenu(c)
 	})
 }
 
-func (m *Model) headerButton(c *g.Context, key, label string, on bool) bool {
-	btn := g.Button(c.Key(key), label).Shrink(0).MinHeight(36)
-	if on {
-		btn = btn.Background(g.Hex("#E8EAEE"))
-	}
-	return btn.Clicked()
-}
-
 func (m *Model) exportMenu(c *g.Context) {
-	btn := g.PopoverMenuButton(c.Key("export"), "导出", func(menu *g.Menu) {
-		if menu.Item("文本 (.txt)").Chosen() {
+	disabled := len(m.finals()) == 0
+	link, clicked := paintLink(c, "export", "导出", disabled)
+	if disabled {
+		m.ExportOpen = false
+	} else if clicked {
+		m.ExportOpen = !m.ExportOpen
+	}
+	g.PopoverBase(c, link, &m.ExportOpen, func(panel g.Element) {
+		panel.MinWidth(180).Padding(SpaceHalf).Gap(SpaceHalf).Radius(RadiusMenu).
+			Background(colorCard).Border(1, colorLine).
+			Shadow(0, 4, 12, 0, shadowOverlay)
+		if menuRow(c, "export-txt", "文本 (.txt)", false) {
+			m.ExportOpen = false
 			m.exportKind("txt")
 		}
-		if menu.Item("字幕 (.srt)").Chosen() {
+		if menuRow(c, "export-srt", "字幕 (.srt)", false) {
+			m.ExportOpen = false
 			m.exportKind("srt")
 		}
-		item := menu.Item("纪要 (.md)")
-		if docEmpty(m.Doc) {
-			item = item.Disabled(true)
-		}
-		if item.Chosen() {
+		if menuRow(c, "export-md", "纪要 (.md)", docEmpty(m.Doc)) {
+			m.ExportOpen = false
 			m.exportKind("md")
 		}
-	}).Shrink(0).MinHeight(36)
-	if len(m.finals()) == 0 {
-		btn = btn.Disabled(true)
-	}
-	_ = btn
+	})
 }
 
 func (m *Model) sessionChip(c *g.Context) {
 	switch {
 	case m.Fault != "" && !m.Listening:
-		g.Text(c, "出错").FontSize(13).TextColor(colorMuted).Shrink(0)
+		text(c, "出错", TypeCaption, colorMuted).Shrink(0)
 	case !m.Ready && m.Fault == "":
-		g.Text(c, "准备中").FontSize(13).TextColor(colorQuiet).Shrink(0)
+		text(c, "准备中", TypeCaption, colorQuiet).Shrink(0)
 	case m.Listening:
-		g.Row(c).Gap(8).AlignItems(g.Center).Shrink(0).Children(func() {
-			g.Box(c).Size(8, 8).Radius(4).Background(colorAccent)
-			g.Text(c, "正在听 · "+m.clock()).FontSize(13).FontWeight(600).TextColor(colorInk)
+		g.Row(c).Gap(GapInline).AlignItems(g.Center).Shrink(0).Children(func() {
+			g.Box(c).Size(ListenDot, ListenDot).Radius(ListenDot / 2).Background(colorAccent)
+			text(c, "正在听 · "+m.clock(), TypeCurrentMeta, colorInk).SingleLine()
 		})
+	case m.DockNote != "":
+		text(c, m.DockNote, TypeCaption, colorQuiet).Shrink(0)
 	case len(m.finals()) > 0:
-		g.Text(c, fmt.Sprintf("已停止 · 共 %d 句", len(m.finals()))).FontSize(13).TextColor(colorQuiet).Shrink(0)
+		text(c, fmt.Sprintf("已停止 · 共 %d 句", len(m.finals())), TypeCaption, colorQuiet).Shrink(0)
 	}
 }
 
@@ -136,29 +175,20 @@ func (m *Model) clock() string {
 }
 
 func (m *Model) listenPage(c *g.Context) {
-	g.Column(c).Grow(1).Gap(12).Children(func() {
-		g.Row(c).Grow(1).Gap(12).AlignItems(g.Stretch).Children(func() {
-			m.stage(c)
-			if m.Panel == panelNotes {
-				m.notesAside(c)
-			}
-		})
-		if m.ConfirmQuit {
-			m.confirmQuit(c)
-		}
-		m.dock(c)
-	})
+	m.stage(c)
 }
 
-func (m *Model) confirmQuit(c *g.Context) {
-	g.Row(c).Shrink(0).Padding(12, 16).Gap(12).Radius(14).AlignItems(g.Center).
-		Background(colorCard).Border(1, colorLine).
-		Children(func() {
-			g.Text(c, "停止并退出？").FontSize(14).TextColor(colorInk).Grow(1)
-			if g.Button(c.Key("stay"), "继续听").Shrink(0).MinHeight(36).Clicked() {
+func (m *Model) confirmQuitDialog(c *g.Context) {
+	g.DialogBase(c, &m.ConfirmQuit, func(back, panel g.Element) {
+		back.Background(maskScrim)
+		panel.Padding(Space3).Gap(GapBlock).Radius(RadiusOverlay).Background(colorCard).
+			Shadow(0, 4, 12, 0, shadowOverlay).MinWidth(280)
+		text(c, "停止并退出？", TypeBody, colorInk)
+		g.Row(c).Gap(GapInline).Justify(g.End).Children(func() {
+			if _, clicked := paintLink(c, "stay", "继续听", false); clicked {
 				m.ConfirmQuit = false
 			}
-			if g.Button(c.Key("quit"), "退出").Shrink(0).MinHeight(36).Clicked() {
+			if paintPrimaryLive(c, "quit", "退出", false) {
 				m.allowClose = true
 				m.stop()
 				if m.win != nil {
@@ -166,21 +196,21 @@ func (m *Model) confirmQuit(c *g.Context) {
 				}
 			}
 		})
+	})
 }
 
 func (m *Model) stage(c *g.Context) {
-	g.Column(c).Grow(1).MinHeight(400).Padding(22, 28, 26, 28).Radius(22).Gap(16).
+	g.Column(c).Grow(1).MinHeight(240).Padding(PadStageY, PadStageX).Radius(RadiusStage).Gap(GapBlock).
 		Background(colorStage).
-		Shadow(0, 16, 40, 0, g.RGBA(21, 23, 28, 0.16)).
 		Children(func() {
-			if code := m.Fault; code != "" && fault.UserMessage(code) != "" {
-				m.faultBar(c, code)
-			}
 			finals := m.finals()
 			partial, hasPartial := m.livePartial()
 			if len(finals) == 0 && !hasPartial {
 				m.emptyStage(c)
 				return
+			}
+			if msg := m.faultText(); msg != "" {
+				text(c, msg, TypeBody, colorOnDark).Shrink(0)
 			}
 			g.Spacer(c)
 			var history []pipeline.Line
@@ -197,50 +227,72 @@ func (m *Model) stage(c *g.Context) {
 				m.history(c, history)
 			}
 			if hasPartial {
-				g.Text(c, partial.Text).FontSize(26).Italic().TextColor(g.Hex("#8E939E")).Shrink(0)
+				face := TypePartial
+				if len([]rune(partial.Text)) > 42 {
+					face = TypePartialLong
+				}
+				text(c, partial.Text, face, colorPartial).Italic().Shrink(0)
 			} else if current != nil {
 				m.currentLine(c, *current)
 			}
+			g.Row(c).Shrink(0).Children(func() {
+				m.stageAction(c)
+			})
 		})
 }
 
 func (m *Model) emptyStage(c *g.Context) {
 	hint := ""
 	switch {
-	case m.Fault != "":
+	case m.faultText() != "":
+		hint = m.faultText()
 	case !m.Ready:
 		hint = "正在准备识别器…"
 	case m.Listening:
-		hint = "正在听…"
+		hint = "正在听"
 	default:
-		hint = "选一个音源，开始听"
+		hint = emptyHint
 	}
-	g.Column(c).Grow(1).Justify(g.End).Children(func() {
-		if hint == "" {
-			return
+	g.Column(c).Grow(1).Justify(g.Center).AlignItems(g.Center).Gap(GapBlock).Children(func() {
+		if hint != "" {
+			col := colorQuiet
+			face := TypeEmpty
+			if m.faultText() != "" {
+				col = colorOnDark
+				face = TypeBody
+			}
+			text(c, hint, face, col)
 		}
-		g.Text(c, hint).FontSize(13).TextColor(g.Hex("#4A4E58"))
+		m.stageAction(c)
 	})
 }
 
-func (m *Model) faultBar(c *g.Context, code string) {
-	text := fault.UserMessage(code)
-	action := fault.Action(code)
-	g.Row(c).Shrink(0).Padding(10, 14).Gap(12).Radius(12).AlignItems(g.Center).
-		Background(g.Hex("#2A1A16")).
-		Children(func() {
-			g.Text(c, text).FontSize(14).TextColor(g.Hex("#F6D2C6")).Grow(1)
-			if action == "" {
-				return
+func (m *Model) faultText() string {
+	if m == nil || m.Fault == "" {
+		return ""
+	}
+	return fault.UserMessage(m.Fault)
+}
+
+func (m *Model) stageAction(c *g.Context) {
+	if m.Listening {
+		if paintPrimaryLive(c, "listen", "停止", false) {
+			m.toggleListen()
+		}
+		return
+	}
+	if m.Fault != "" {
+		if action := fault.Action(m.Fault); action != "" {
+			if paintPrimaryLive(c, "fault-"+m.Fault, action, m.Downloading) {
+				m.faultAction(m.Fault)
 			}
-			btn := g.Button(c.Key("fault-"+code), action).Shrink(0).MinHeight(36)
-			if code == fault.ModelMissing {
-				btn = btn.Tooltip(modelCacheNote)
-			}
-			if btn.Clicked() {
-				m.faultAction(code)
-			}
-		})
+			return
+		}
+	}
+	disabled := !m.Ready || m.selectedID() == ""
+	if paintPrimaryLive(c, "listen", "开始听", disabled) {
+		m.toggleListen()
+	}
 }
 
 func (m *Model) history(c *g.Context, lines []pipeline.Line) {
@@ -251,15 +303,15 @@ func (m *Model) history(c *g.Context, lines []pipeline.Line) {
 			if line.Start > 0 || line.End > 0 {
 				when = stamp(line.Start)
 			}
-			row := g.Row(c).Gap(12).AlignItems(g.Baseline).Shrink(0)
+			row := g.Row(c).Gap(GapInline).AlignItems(g.Baseline).Shrink(0)
 			if when != "" {
 				row = row.Tooltip(when)
 			}
 			row = row.Children(func() {
 				if when != "" && row.Hovered() {
-					g.Text(c, when).FontSize(12).TextColor(colorTime).Shrink(0)
+					text(c, when, TypeCaption, colorHist).Shrink(0)
 				}
-				g.Text(c, line.Text).FontSize(15).TextColor(colorHist).Grow(1)
+				text(c, line.Text, TypeHist, colorHist).Grow(1)
 			})
 			if reveal && i == len(lines)-1 {
 				row.ScrollIntoView()
@@ -267,106 +319,62 @@ func (m *Model) history(c *g.Context, lines []pipeline.Line) {
 		}
 	}
 	if len(lines) > 6 {
-		g.Scroll(c).Height(200).Shrink(0).Gap(10).Children(build)
+		g.Scroll(c).Height(200).Shrink(0).Gap(GapInline).Children(build)
 		m.follow = len(m.Lines)
 		return
 	}
-	g.Column(c).Gap(10).Shrink(0).Children(build)
+	g.Column(c).Gap(GapInline).Shrink(0).Children(build)
 }
 
 func (m *Model) currentLine(c *g.Context, line pipeline.Line) {
-	g.Column(c).Gap(8).Shrink(0).Children(func() {
-		if meta := lineMeta(line); meta != "" {
-			g.Text(c, meta).FontSize(12).TextColor(colorTime)
+	g.Column(c).Gap(Space1).Shrink(0).Children(func() {
+		if label := langLabel(line.Language); label != "" {
+			text(c, label, TypeCurrentMeta, colorQuiet)
 		}
-		size := float32(32)
+		face := TypeCurrent
 		if len([]rune(line.Text)) > 42 {
-			size = 26
+			face = TypeCurrentLong
 		}
-		g.Text(c, line.Text).FontSize(size).FontWeight(650).TextColor(colorOnDark)
+		text(c, line.Text, face, colorOnDark)
 	})
 }
 
-func (m *Model) dock(c *g.Context) {
-	g.Column(c).Shrink(0).Padding(14, 16).Gap(12).Radius(16).
-		Background(colorCard).Border(1, colorLine).
-		Shadow(0, 8, 24, 0, g.RGBA(21, 23, 28, 0.05)).
-		Children(func() {
-			g.Row(c).Gap(8).AlignItems(g.Center).Children(func() {
-				if len(m.Labels) == 0 {
-					g.Text(c, "没找到系统声，可从文件听写").FontSize(14).TextColor(colorMuted).Grow(1)
-				} else {
-					sel := g.Select(c.Key("source"), &m.Selected, m.Labels).Grow(1).MinWidth(240)
-					if m.Focus == focusSource {
-						sel.Focus()
-						m.Focus = ""
-					}
-				}
-				if g.Button(c.Key("refresh"), "刷新").Shrink(0).MinHeight(36).Clicked() {
-					m.refresh(nil)
-					if m.Fault == fault.CaptureUnavailable && len(m.Labels) > 0 {
-						m.clearFault(fault.CaptureUnavailable)
-					}
-				}
-			})
-			g.Row(c).Gap(8).AlignItems(g.Center).Children(func() {
-				label := "开始听"
-				if m.Listening {
-					label = "停止"
-				}
-				var btn g.Element
-				if m.Listening || (m.Ready && len(m.Labels) > 0) {
-					btn = g.PrimaryButton(c.Key("listen"), label).Shrink(0).MinHeight(40)
-				} else {
-					btn = g.Button(c.Key("listen"), label).Shrink(0).MinHeight(40).Disabled(true)
-				}
-				if btn.Clicked() {
-					m.toggleListen()
-				}
-				if !m.Listening && len(m.finals()) > 0 {
-					if g.Button(c.Key("clear"), "清空").Shrink(0).MinHeight(36).Clicked() {
-						m.clearLines()
-					}
-				}
-				more := "更多"
-				if m.More {
-					more = "收起"
-				}
-				if g.Button(c.Key("more"), more).Shrink(0).MinHeight(36).Clicked() {
-					m.More = !m.More
-				}
-				g.Spacer(c)
-				if note := m.footnote(); note != "" {
-					g.Text(c, note).FontSize(13).TextColor(colorQuiet)
-				}
-			})
-			if m.More {
-				m.fileRow(c)
-			}
+func (m *Model) browse() {
+	win := m.win
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:  win,
+			Title:   "选择音频",
+			Filters: []mygo.FileFilter{{Name: "WAV", Extensions: []string{"wav"}}},
 		})
+		if win == nil || m.closed.Load() {
+			return
+		}
+		win.Update(func() {
+			if err != nil || len(paths) == 0 {
+				return
+			}
+			m.WAV = paths[0]
+			m.FileName = filepath.Base(paths[0])
+			m.DockNote = ""
+			m.clearFault(fault.FileInvalid)
+		})
+	}()
 }
 
-func (m *Model) fileRow(c *g.Context) {
-	g.Row(c).Gap(8).AlignItems(g.Center).Children(func() {
-		if g.Button(c.Key("browse"), "从文件…").Shrink(0).MinHeight(36).Clicked() {
-			m.browse()
-		}
-		name := m.FileName
-		if name == "" {
-			name = "还没有选择文件"
-		}
-		el := g.Text(c, name).FontSize(14).TextColor(colorMuted).Grow(1)
-		if m.WAV != "" {
-			el.Tooltip(m.WAV)
-		}
-		play := g.Button(c.Key("play"), "听这个文件").Shrink(0).MinHeight(36)
-		if !m.Ready || m.Listening || strings.TrimSpace(m.WAV) == "" {
-			play = play.Disabled(true)
-		}
-		if play.Clicked() {
-			m.listenFile()
-		}
-	})
+func (m *Model) copyCurrent() {
+	text := ""
+	if partial, ok := m.livePartial(); ok {
+		text = partial.Text
+	} else if lines := m.finals(); len(lines) > 0 {
+		text = lines[len(lines)-1].Text
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || m.win == nil {
+		return
+	}
+	mygo.Clipboard.WriteText(text)
+	m.DockNote = "已复制当前句"
 }
 
 func (m *Model) footnote() string {
@@ -389,43 +397,4 @@ func (m *Model) footnote() string {
 		return "已停止"
 	}
 	return "可以开始听"
-}
-
-func (m *Model) browse() {
-	win := m.win
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Parent:  win,
-			Title:   "选择音频",
-			Filters: []mygo.FileFilter{{Name: "WAV", Extensions: []string{"wav"}}},
-		})
-		if win == nil || m.closed.Load() {
-			return
-		}
-		win.Update(func() {
-			if err != nil || len(paths) == 0 {
-				return
-			}
-			m.WAV = paths[0]
-			m.FileName = filepath.Base(paths[0])
-			m.More = true
-			m.DockNote = ""
-			m.clearFault(fault.FileInvalid)
-		})
-	}()
-}
-
-func (m *Model) copyCurrent() {
-	text := ""
-	if partial, ok := m.livePartial(); ok {
-		text = partial.Text
-	} else if lines := m.finals(); len(lines) > 0 {
-		text = lines[len(lines)-1].Text
-	}
-	text = strings.TrimSpace(text)
-	if text == "" || m.win == nil {
-		return
-	}
-	mygo.Clipboard.WriteText(text)
-	m.DockNote = "已复制当前句"
 }

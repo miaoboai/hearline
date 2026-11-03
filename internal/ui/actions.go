@@ -58,8 +58,8 @@ func (m *Model) toggleListen() {
 	}
 	id := m.selectedID()
 	if id == "" {
-		m.More = true
-		m.DockNote = "没找到系统声，可从文件听写"
+		m.Panel = panelSettings
+		m.SaveNote = "先选择音源，或从文件听写"
 		return
 	}
 	m.start(id)
@@ -71,11 +71,13 @@ func (m *Model) listenFile() {
 	}
 	path := strings.TrimSpace(m.WAV)
 	if path == "" {
-		m.More = true
-		m.DockNote = "先选择一个音频文件"
+		m.Panel = panelSettings
+		m.SaveNote = "先选择一个音频文件"
 		return
 	}
 	m.FileName = filepath.Base(path)
+	m.Panel = panelListen
+	m.NotesOpen = false
 	m.start("wav:" + path)
 }
 
@@ -183,6 +185,7 @@ func (m *Model) downloadModel() {
 	}
 	if m.download == nil {
 		m.Panel = panelSettings
+		m.ShowAdvanced = true
 		m.Focus = focusModel
 		m.SaveNote = modelCacheNote
 		m.DockNote = modelCacheNote
@@ -233,6 +236,7 @@ func (m *Model) loadDraft(cfg config.Config) {
 	m.LangLabel = langChoice(cfg.ASR.Language)
 	m.VADLabel = vadChoice(cfg.ASR.VAD)
 	m.ModelDir = cfg.ASR.ModelDir
+	m.Threads = cfg.ASR.Threads()
 	m.BaseURL = cfg.LLM.Remote.BaseURL
 	m.ModelName = cfg.LLM.Remote.Model
 	m.APIKey = cfg.LLM.Remote.APIKey
@@ -242,12 +246,19 @@ func (m *Model) loadDraft(cfg config.Config) {
 }
 
 func (m *Model) openNotes() {
-	m.Panel = panelNotes
-	m.ConfirmQuit = false
-	ok, _ := notes.Available(m.llm)
-	if !ok {
+	if !m.notesReady() {
+		m.Panel = panelListen
+		m.NotesOpen = false
 		return
 	}
+	if m.Panel == panelNotes {
+		m.Panel = panelListen
+		m.NotesOpen = false
+		return
+	}
+	m.Panel = panelNotes
+	m.NotesOpen = true
+	m.ConfirmQuit = false
 	m.wantNotes = true
 	if len(m.finals()) == 0 {
 		return

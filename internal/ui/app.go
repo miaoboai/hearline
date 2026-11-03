@@ -67,23 +67,27 @@ type Model struct {
 	NotesBusy  bool
 	NotesErr   string
 	// follow is the line count last scrolled into view.
-	follow      int
-	notesGen    int
-	wantNotes   bool
-	reloadASR   bool
-	loadGen     atomic.Uint64
-	Panel       int
-	More        bool
-	ConfirmQuit bool
-	allowClose  bool
-	OnTop       bool
-	Started     time.Time
-	ShownFor    time.Duration
-	FileName    string
-	DockNote    string
-	Downloading bool
-	Threads     int
-	notesRun    notes.Runner
+	follow       int
+	notesGen     int
+	wantNotes    bool
+	reloadASR    bool
+	loadGen      atomic.Uint64
+	Panel        int
+	More         bool
+	ConfirmQuit  bool
+	allowClose   bool
+	OnTop        bool
+	Started      time.Time
+	ShownFor     time.Duration
+	FileName     string
+	DockNote     string
+	Downloading  bool
+	Threads      int
+	ShowAdvanced bool
+	ExportOpen   bool
+	NotesOpen    bool
+	Gallery      string
+	notesRun     notes.Runner
 
 	llm  config.LLM
 	cfg  config.Config
@@ -124,7 +128,7 @@ func Run(opt Options) error {
 			Title:           "Hearline",
 			Width:           frameWidth,
 			Height:          frameHeight,
-			MinWidth:        920,
+			MinWidth:        720,
 			MinHeight:       640,
 			BackgroundColor: "#F3F4F6",
 			Content:         mygoui.View(m.view),
@@ -148,7 +152,11 @@ func Run(opt Options) error {
 
 // WritePNG renders one frame of the subtitle surface.
 func WritePNG(m *Model, path string) error {
-	img := mygoui.Render(m.view, frameWidth, frameHeight, 1)
+	return WritePNGSize(m, path, frameWidth, frameHeight)
+}
+
+func WritePNGSize(m *Model, path string, w, h int) error {
+	img := mygoui.Render(m.view, w, h, 1)
 	if img == nil {
 		return fmt.Errorf("subtitle surface did not render")
 	}

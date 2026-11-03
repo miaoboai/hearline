@@ -8,8 +8,11 @@ import (
 
 	"github.com/miaoboai/hearline/internal/config"
 	"github.com/miaoboai/hearline/internal/fault"
+	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
+
+const galleryStates = "states"
 
 // WriteReviewFrames draws the listen, empty, listening, error, settings, and notes
 // surfaces. main may be nil; a sample transcript is used then.
@@ -30,11 +33,18 @@ func WriteReviewFrames(dir string, main *Model) error {
 		{"hearline-error.png", sampleError()},
 		{"hearline-settings.png", sampleSettings()},
 		{"hearline-notes.png", sampleNotes()},
+		{"hearline-settings-advanced.png", sampleSettingsAdvanced()},
 	}
 	for _, frame := range frames {
 		if err := WritePNG(frame.m, filepath.Join(dir, frame.name)); err != nil {
 			return fmt.Errorf("%s: %w", frame.name, err)
 		}
+	}
+	if err := WritePNGSize(sampleEmpty(), filepath.Join(dir, "hearline-narrow.png"), 720, frameHeight); err != nil {
+		return fmt.Errorf("hearline-narrow.png: %w", err)
+	}
+	if err := WritePNGSize(samplePrimaryStates(), filepath.Join(dir, "hearline-primary-states.png"), 880, 220); err != nil {
+		return fmt.Errorf("hearline-primary-states.png: %w", err)
 	}
 	return nil
 }
@@ -87,6 +97,29 @@ func sampleSettings() *Model {
 func sampleNotes() *Model {
 	m := Snapshot(sampleLines(), "系统声", "已停止", "")
 	m.Panel = panelNotes
-	m.llm = config.LLM{Backend: "local", Local: config.LocalLLM{Runtime: "llama.cpp"}}
+	m.NotesOpen = true
+	m.llm = config.LLM{Backend: "remote", Remote: config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}}
+	m.Backend = 1
+	m.BaseURL = m.llm.Remote.BaseURL
+	m.ModelName = m.llm.Remote.Model
+	m.Doc = notesDocSample()
+	return m
+}
+
+func notesDocSample() notes.Doc {
+	return notes.Doc{Points: []string{"开饭时间早上9点至下午5点。"}}
+}
+
+func sampleSettingsAdvanced() *Model {
+	m := sampleSettings()
+	m.ShowAdvanced = true
+	m.Focus = focusModel
+	m.ModelDir = "~/.cache/hearline/sensevoice-small-q8"
+	return m
+}
+
+func samplePrimaryStates() *Model {
+	m := sampleEmpty()
+	m.Gallery = galleryStates
 	return m
 }

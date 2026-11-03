@@ -17,12 +17,12 @@ const (
 )
 
 func privacyBlock(c *g.Context, remoteOn bool) {
-	g.Text(c, privacyAudio).FontSize(14).TextColor(colorInk)
+	text(c, privacyAudio, TypeAbout, colorMuted)
 	if remoteOn {
-		g.Text(c, privacyRemote).FontSize(14).TextColor(colorMuted)
+		text(c, privacyRemote, TypeAbout, colorMuted)
 		return
 	}
-	g.Text(c, privacyOff).FontSize(14).TextColor(colorQuiet)
+	text(c, privacyOff, TypeAbout, colorMuted)
 }
 
 func langLabel(code string) string {
