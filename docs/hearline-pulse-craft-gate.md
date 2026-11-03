@@ -1,4 +1,4 @@
-# Hearline 验收清单（可勾选 · v2.1 · 九分必须项 Q1–Q3）
+# Hearline 验收清单（可勾选 · v2.1.1 · T7 令牌修订）
 
 对照：`miaoboai/client-pulse-vcam` + https://pulse.egoist.dev/  
 令牌：`hearline-design-system.md` **v0.2**  
@@ -82,7 +82,7 @@
 - [x] T4 圆角令牌；主钮=8
 - [x] T5 Stage 无厚影
 - [x] T6 禁用 X1–X9 全无
-- [ ] T7 正文对比度达 §3.1
+- [ ] T7 正文对比度达 design-system §3.1.1（quiet=`#667085`；accent=`#C94A22`；Stage 弱字用 hist；**不豁免旧色**)
 - [x] T8 动效符合 §3.7（默认静止）
 - [x] T9 Primary/Text 全态表已实现（§4）
 - [x] T10 键盘 focus-visible 可见

@@ -1,4 +1,4 @@
-# Hearline 设计系统（v0.2 · 目标 9–10 分尺）
+# Hearline 设计系统（v0.2.1 · 目标 9–10 分尺 · T7 色修订）
 
 **进仓路径**：`docs/hearline-design-system.md`  
 **门禁**：`docs/hearline-pulse-craft-gate.md`（冲突以门禁为准）  
@@ -44,11 +44,11 @@
 | card | `#FFFFFF` | ink on card ≥ 12:1 |
 | ink | `#15171C` | on ground/card ≥ 12:1 |
 | muted | `#5A5F6B` | on card ≥ 4.5:1 |
-| quiet | `#8B909A` | on card ≥ 4.5:1（小字） |
+| quiet | `#667085` | on card ≥ 4.5:1（小字） |
 | line | `#E8EAEE` | — |
 | accent | `#E8552B` | onAccent 对比 ≥ 4.5:1 |
-| accent.hover | `#D44820` | |
-| accent.pressed | `#B83C18` | |
+| accent.hover | `#B33A12` | |
+| accent.pressed | `#9A2F0E` | |
 | stage | `#15171C` | |
 | onDark | `#F7F8FA` | on stage ≥ 12:1 |
 | hist | `#A8ADB8` | on stage ≥ 4.5:1 |
@@ -58,6 +58,22 @@
 | focus | `#2F6FED` | 仅键盘焦点环 |
 
 强调色只给：主钮、听写点、危险。
+
+### 3.1.1 T7 对比度冻结（2026-11-04 · 不豁免）
+
+实测旧值未达 AA，**改令牌，不豁免**：
+
+| Token | 旧 | 新 | 对地上 |
+|---|---|---|---|
+| quiet | `#8B909A` | **`#667085`** | on `#FFFFFF` ≈4.97；on ground ≈4.52 |
+| accent | `#E8552B` | **`#C94A22`** | white on accent ≈4.68 |
+| accent.hover | `#D44820` | **`#B33A12`** | ≈5.95 |
+| accent.pressed | `#B83C18` | **`#9A2F0E`** | ≈7.54 |
+
+- Stage 上空态/弱字：**用 `hist` `#A8ADB8`**，禁止再用 `quiet`（quiet 仅浅色壳）。
+- `onAccent` 保持 `#FFFFFF`。
+- 实现改 `internal/ui/tokens.go` 常量；破窗测试须覆盖 quiet/accent 对比下限。
+
 
 ### 3.2 字族
 
@@ -207,5 +223,6 @@ X1 渐变　X2 彩虹装饰　X3 闪烁/弹跳　X4 整窗毛玻璃　X5 裸默�
 | Ver | 说明 |
 |---|---|
 | 0.1–0.1.2 | 七分尺：色板→令牌初稿 |
-| **0.2** | **九–十分尺**：Pulse 迁移表、对比度、全态、动效禁用、焦点环 |
+| **0.2** | 九–十分尺：Pulse 迁移表、对比度、全态、动效禁用、焦点环 |
+| **0.2.1** | T7：quiet/accent 加深达 AA；Stage 弱字改用 hist |
 
