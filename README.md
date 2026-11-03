@@ -93,7 +93,7 @@ make demo
 
 1. 若 `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/` 里没有 Q8 模型，就从 sherpa-onnx 的官方 int8 包下载（压缩包约 156MB，权重 `model.int8.onnx` 约 229MB）
 2. 用包内 `test_wavs/zh.wav` 和 `en.wav` 做 CPU 解码
-3. 把字幕行写到 `/tmp/hearline-subs.txt`，并把字幕界面画成 `/tmp/hearline-subs.png`（不需要显示器）
+3. 把字幕行写到 `/tmp/hearline-subs.txt`，并把字幕界面画成 `/tmp/hearline-subs.png`（不需要显示器）。仓库里的参考画面是 `docs/v0.1-subtitles.png`
 
 模型地址：
 
