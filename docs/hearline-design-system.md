@@ -46,9 +46,9 @@
 | muted | `#5A5F6B` | on card ≥ 4.5:1 |
 | quiet | `#667085` | on card ≥ 4.5:1（小字） |
 | line | `#E8EAEE` | — |
-| accent | `#C94A22` | onAccent 对比 ≥ 4.5:1 |
-| accent.hover | `#B33A12` | |
-| accent.pressed | `#9A2F0E` | |
+| accent | `#C2410C` | onAccent 对比 ≥ 4.5:1 |
+| accent.hover | `#A83410` | |
+| accent.pressed | `#8F2C0D` | |
 | stage | `#15171C` | |
 | onDark | `#F7F8FA` | on stage ≥ 12:1 |
 | hist | `#A8ADB8` | on stage ≥ 4.5:1 |
@@ -65,10 +65,10 @@
 
 | Token | 旧 | 新 | 对地上 |
 |---|---|---|---|
-| quiet | `#8B909A` | **`#667085`** | on `#FFFFFF` ≈4.97；on ground ≈4.52 |
-| accent | `#E8552B` | **`#C94A22`** | white on accent ≈4.68 |
-| accent.hover | `#D44820` | **`#B33A12`** | ≈5.95 |
-| accent.pressed | `#B83C18` | **`#9A2F0E`** | ≈7.54 |
+| quiet | `#8B909A` | **`#667085`** | on white≈4.97；on ground≈4.52（不用 `#6B7280`：ground 仅≈4.39） |
+| accent | `#E8552B` | **`#C2410C`** | white on accent ≈5.18 |
+| accent.hover | `#D44820` | **`#A83410`** | ≈6.64 |
+| accent.pressed | `#B83C18` | **`#8F2C0D`** | ≈8.29 |
 
 - Stage 上空态/弱字：**用 `hist` `#A8ADB8`**，禁止再用 `quiet`（quiet 仅浅色壳）。
 - `onAccent` 保持 `#FFFFFF`。
