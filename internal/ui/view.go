@@ -13,7 +13,7 @@ import (
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
-const emptyHint = "安静的环境，更准确的听写体验。"
+const emptyHint = "开始听写后字幕会出现在这里"
 
 func (m *Model) view(c *g.Context) {
 	if c == nil || m == nil {
@@ -25,10 +25,12 @@ func (m *Model) view(c *g.Context) {
 		return
 	}
 	m.shortcuts(c)
-	g.Column(c).Fill().Padding(PadWindow).Gap(GapBlock).Background(colorGround).Children(func() {
+	g.Column(c).Fill().Gap(0).Background(colorGround).Children(func() {
 		m.header(c)
 		if m.Panel == panelSettings {
-			m.settingsPage(c)
+			g.Column(c).Grow(1).Padding(PadWindow).Children(func() {
+				m.settingsPage(c)
+			})
 			return
 		}
 		m.listenPage(c)
@@ -92,7 +94,7 @@ func (m *Model) shortcuts(c *g.Context) {
 }
 
 func (m *Model) header(c *g.Context) {
-	g.Row(c).MinHeight(HeaderH).AlignItems(g.Center).Gap(GapInline).Shrink(0).Children(func() {
+	g.Row(c).MinHeight(HeaderH).Padding(0, PadHeaderX).AlignItems(g.Center).Gap(GapInline).Shrink(0).Children(func() {
 		g.Column(c).Gap(0).Shrink(0).Children(func() {
 			text(c, "Hearline", TypeBrand, colorInk).SingleLine()
 			text(c, "本地听写", TypeSub, colorQuiet).SingleLine()

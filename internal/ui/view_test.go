@@ -220,7 +220,7 @@ func TestChromeLayout(t *testing.T) {
 	if !exactText(idle, "开始听") || exactText(idle, "停止") || exactText(idle, "刷新") || exactText(idle, "更多") || exactText(idle, "纪要") {
 		t.Fatalf("idle texts %v", idle.Texts())
 	}
-	if !idle.HasText(emptyHint) {
+	if !idle.HasText(emptyHint) || idle.HasText("安静的环境") {
 		t.Fatal("idle empty hint missing")
 	}
 	listen := g.NewTester(sampleListening().view, frameWidth, frameHeight)
@@ -256,6 +256,31 @@ func TestChromeLayout(t *testing.T) {
 	if narrow == nil || narrow.Bounds().Dx() != 720 {
 		t.Fatal("narrow frame missing")
 	}
+}
+
+func TestStageIsFlush(t *testing.T) {
+	img := g.Render(sampleEmpty().view, frameWidth, frameHeight, 1)
+	if img == nil {
+		t.Fatal("nil")
+	}
+	stage := g.Hex(HexStage)
+	ground := g.Hex(HexGround)
+	// Header band stays on the ground. The stage meets the window edges
+	// under it, with square corners, so it is a surface rather than a card.
+	if !pixelNear(img, 4, 8, ground) {
+		t.Fatal("header band left the ground")
+	}
+	if !pixelNear(img, 2, int(HeaderH)+4, stage) || !pixelNear(img, frameWidth-3, frameHeight-3, stage) || !pixelNear(img, 2, frameHeight-3, stage) {
+		t.Fatal("stage is inset from the window edge")
+	}
+	if RadiusStage != 0 {
+		t.Fatalf("stage radius %v", RadiusStage)
+	}
+}
+
+func pixelNear(img *image.RGBA, x, y int, want g.Color) bool {
+	rr, gg, bb, _ := img.At(x, y).RGBA()
+	return near8(int(rr>>8), int(want.R), 8) && near8(int(gg>>8), int(want.G), 8) && near8(int(bb>>8), int(want.B), 8)
 }
 
 func TestPrimaryPaintsAccent(t *testing.T) {

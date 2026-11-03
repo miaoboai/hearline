@@ -42,7 +42,7 @@ const (
 	GapInline     float32 = 8
 	RowSettings   float32 = 44
 	RadiusCtrl    float32 = 8
-	RadiusStage   float32 = 12
+	RadiusStage   float32 = 0
 	RadiusOverlay float32 = 12
 	RadiusMenu    float32 = 8
 	PrimaryMinH   float32 = 36
