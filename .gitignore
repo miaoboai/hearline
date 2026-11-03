@@ -1,0 +1,13 @@
+/bin/
+/dist/
+/build/
+/.mygo/
+/models/
+*.onnx
+*.tar.bz2
+*.tar.gz
+/hearline
+.DS_Store
+*.exe
+*.test
+/tmp/
