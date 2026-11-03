@@ -106,17 +106,17 @@ func (m *Model) aboutBlock(c *g.Context) {
 	g.Text(c, "空格 开始或停止 · Ctrl+E 导出 · Ctrl+Shift+C 复制当前句 · Ctrl+, 设置 · Esc 关闭").FontSize(13).TextColor(colorMuted)
 }
 
-func (m *Model) notesPage(c *g.Context) {
+func (m *Model) notesAside(c *g.Context) {
 	ok, reason := notes.Available(m.llm)
-	g.Scroll(c).Grow(1).Gap(14).Children(func() {
-		card(c, func() {
-			g.Row(c).AlignItems(g.Center).Gap(12).Children(func() {
-				g.Text(c, "纪要").FontSize(22).FontWeight(650).TextColor(colorInk).Grow(1)
-				if !ok {
-					g.Text(c, reason).FontSize(13).TextColor(colorQuiet)
-					g.Button(c.Key("make-notes"), "生成纪要").Shrink(0).MinHeight(40).Disabled(true)
-					return
-				}
+	g.Column(c).Width(300).Shrink(0).Grow(1).Padding(16, 16).Gap(12).Radius(16).
+		Background(colorCard).Border(1, colorLine).
+		Shadow(0, 8, 24, 0, g.RGBA(21, 23, 28, 0.05)).
+		Children(func() {
+			g.Text(c, "纪要").FontSize(18).FontWeight(650).TextColor(colorInk).Shrink(0)
+			if !ok {
+				g.Text(c, reason).FontSize(13).TextColor(colorQuiet).Shrink(0)
+				g.Button(c.Key("make-notes"), "生成纪要").Shrink(0).MinHeight(40).Disabled(true)
+			} else {
 				btn := g.PrimaryButton(c.Key("make-notes"), "生成纪要").Shrink(0).MinHeight(40)
 				if m.NotesBusy || len(m.finals()) == 0 {
 					btn = btn.Disabled(true)
@@ -125,36 +125,33 @@ func (m *Model) notesPage(c *g.Context) {
 					m.wantNotes = true
 					m.generateNotes()
 				}
-			})
-			if !ok {
-				g.Text(c, "听写一段时间后，可在这里生成纪要").FontSize(15).TextColor(colorQuiet)
-				return
 			}
-			if m.NotesBusy {
-				g.Text(c, "正在整理").FontSize(14).TextColor(colorQuiet)
-			} else if m.NotesErr != "" {
-				g.Text(c, m.NotesErr).FontSize(14).TextColor(colorMuted)
-			}
-			if docEmpty(m.Doc) && !m.NotesBusy && m.NotesErr == "" {
-				g.Text(c, "听写一段时间后，可在这里生成纪要").FontSize(15).TextColor(colorQuiet)
-				return
-			}
-			noteSection(c, "要点", m.Doc.Points)
-			noteSection(c, "待办", m.Doc.Todos)
-			if len(m.Doc.Terms) > 0 {
-				g.Text(c, "术语").FontSize(12).FontWeight(650).TextColor(colorQuiet)
-				g.Column(c).Gap(8).Children(func() {
-					for _, term := range m.Doc.Terms {
-						text := term.Word
-						if term.Note != "" {
-							text += "  ·  " + term.Note
+			g.Scroll(c).Grow(1).Gap(12).Children(func() {
+				if !ok || (docEmpty(m.Doc) && !m.NotesBusy && m.NotesErr == "") {
+					g.Text(c, "听写一段时间后，可在这里生成纪要").FontSize(14).TextColor(colorQuiet)
+					return
+				}
+				if m.NotesBusy {
+					g.Text(c, "正在整理").FontSize(14).TextColor(colorQuiet)
+				} else if m.NotesErr != "" {
+					g.Text(c, m.NotesErr).FontSize(14).TextColor(colorMuted)
+				}
+				noteSection(c, "要点", m.Doc.Points)
+				noteSection(c, "待办", m.Doc.Todos)
+				if len(m.Doc.Terms) > 0 {
+					g.Text(c, "术语").FontSize(12).FontWeight(650).TextColor(colorQuiet)
+					g.Column(c).Gap(8).Children(func() {
+						for _, term := range m.Doc.Terms {
+							text := term.Word
+							if term.Note != "" {
+								text += "  ·  " + term.Note
+							}
+							g.Text(c, text).FontSize(15).TextColor(colorInk)
 						}
-						g.Text(c, text).FontSize(15).TextColor(colorInk)
-					}
-				})
-			}
+					})
+				}
+			})
 		})
-	})
 }
 
 func noteSection(c *g.Context, title string, items []string) {

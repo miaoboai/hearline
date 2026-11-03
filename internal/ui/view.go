@@ -21,14 +21,11 @@ func (m *Model) view(c *g.Context) {
 	m.shortcuts(c)
 	g.Column(c).Fill().Padding(24).Gap(14).Background(colorGround).Children(func() {
 		m.header(c)
-		switch m.Panel {
-		case panelSettings:
+		if m.Panel == panelSettings {
 			m.settingsPage(c)
-		case panelNotes:
-			m.notesPage(c)
-		default:
-			m.listenPage(c)
+			return
 		}
+		m.listenPage(c)
 	})
 }
 
@@ -140,7 +137,12 @@ func (m *Model) clock() string {
 
 func (m *Model) listenPage(c *g.Context) {
 	g.Column(c).Grow(1).Gap(12).Children(func() {
-		m.stage(c)
+		g.Row(c).Grow(1).Gap(12).AlignItems(g.Stretch).Children(func() {
+			m.stage(c)
+			if m.Panel == panelNotes {
+				m.notesAside(c)
+			}
+		})
 		if m.ConfirmQuit {
 			m.confirmQuit(c)
 		}
@@ -203,18 +205,21 @@ func (m *Model) stage(c *g.Context) {
 }
 
 func (m *Model) emptyStage(c *g.Context) {
-	title, sub := "选一个音源，开始听", "字幕会跟着声音出现"
+	hint := ""
 	switch {
-	case !m.Ready && m.Fault == "":
-		title, sub = "正在准备识别器…", "首次约需几秒，只在本机"
-	case m.Listening:
-		title, sub = "正在听…", "开口后字幕会出现在这里"
 	case m.Fault != "":
-		return
+	case !m.Ready:
+		hint = "正在准备识别器…"
+	case m.Listening:
+		hint = "正在听…"
+	default:
+		hint = "选一个音源，开始听"
 	}
-	g.Column(c).Grow(1).AlignItems(g.Center).Justify(g.Center).Gap(8).Children(func() {
-		g.Text(c, title).FontSize(18).TextColor(g.Hex("#C5CAD3"))
-		g.Text(c, sub).FontSize(14).TextColor(g.Hex("#6B7080"))
+	g.Column(c).Grow(1).Justify(g.End).Children(func() {
+		if hint == "" {
+			return
+		}
+		g.Text(c, hint).FontSize(13).TextColor(g.Hex("#4A4E58"))
 	})
 }
 
@@ -228,7 +233,11 @@ func (m *Model) faultBar(c *g.Context, code string) {
 			if action == "" {
 				return
 			}
-			if g.Button(c.Key("fault-"+code), action).Shrink(0).MinHeight(36).Clicked() {
+			btn := g.Button(c.Key("fault-"+code), action).Shrink(0).MinHeight(36)
+			if code == fault.ModelMissing {
+				btn = btn.Tooltip(modelCacheNote)
+			}
+			if btn.Clicked() {
 				m.faultAction(code)
 			}
 		})
@@ -238,9 +247,17 @@ func (m *Model) history(c *g.Context, lines []pipeline.Line) {
 	reveal := len(lines) > 6 && m.follow != len(m.Lines)
 	build := func() {
 		for i, line := range lines {
-			row := g.Row(c).Gap(12).AlignItems(g.Baseline).Shrink(0).Children(func() {
-				if line.Start > 0 || line.End > 0 {
-					g.Text(c, stamp(line.Start)).FontSize(12).TextColor(colorTime).Shrink(0)
+			when := ""
+			if line.Start > 0 || line.End > 0 {
+				when = stamp(line.Start)
+			}
+			row := g.Row(c).Gap(12).AlignItems(g.Baseline).Shrink(0)
+			if when != "" {
+				row = row.Tooltip(when)
+			}
+			row = row.Children(func() {
+				if when != "" && row.Hovered() {
+					g.Text(c, when).FontSize(12).TextColor(colorTime).Shrink(0)
 				}
 				g.Text(c, line.Text).FontSize(15).TextColor(colorHist).Grow(1)
 			})

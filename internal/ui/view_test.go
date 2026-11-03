@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,45 @@ func TestPrivacyFollowsBackend(t *testing.T) {
 	}
 	if asrNeedsReload(config.ASR{Language: "zh", VAD: "mid"}, config.ASR{Language: "zh", VAD: "high"}) {
 		t.Fatal("sensitivity is applied on the chunker, not by reloading the model")
+	}
+}
+
+func TestDownloadModelIsWired(t *testing.T) {
+	if fault.Action(fault.ModelMissing) != "下载模型" {
+		t.Fatal("model missing action drifted")
+	}
+	m := sampleError()
+	called := make(chan struct{}, 1)
+	m.download = func(context.Context) error {
+		called <- struct{}{}
+		return context.Canceled
+	}
+	tt := g.NewTester(m.view, frameWidth, frameHeight)
+	if err := tt.Click("下载模型"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.Downloading {
+		t.Fatal("下载模型 did not start")
+	}
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("下载模型 did not call DownloadModel")
+	}
+	plain := sampleError()
+	tt = g.NewTester(plain.view, frameWidth, frameHeight)
+	if err := tt.Click("下载模型"); err != nil {
+		t.Fatal(err)
+	}
+	if plain.Panel != panelSettings || plain.SaveNote != modelCacheNote {
+		t.Fatalf("panel %d note %q", plain.Panel, plain.SaveNote)
+	}
+	if !tt.HasText("模型路径") || !tt.HasText(modelCacheNote) {
+		t.Fatal("下载模型 did not open the model field")
+	}
+	tt.Type("models/sensevoice")
+	if plain.ModelDir != "models/sensevoice" {
+		t.Fatalf("model field did not take focus, dir %q", plain.ModelDir)
 	}
 }
 

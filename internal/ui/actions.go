@@ -21,6 +21,10 @@ const (
 
 	focusSource = "source"
 	focusModel  = "model"
+
+	// modelCacheNote is where 「下载模型」 puts the official int8 archive
+	// when the settings path is empty. It matches sensevoice.Download.
+	modelCacheNote = "下到 ~/.cache/hearline/sensevoice-small-q8"
 )
 
 func (m *Model) finals() []pipeline.Line {
@@ -42,7 +46,7 @@ func (m *Model) livePartial() (pipeline.Line, bool) {
 }
 
 func (m *Model) toggleListen() {
-	if m.Panel != panelListen {
+	if m.Panel == panelSettings {
 		return
 	}
 	if m.Listening {
@@ -180,7 +184,8 @@ func (m *Model) downloadModel() {
 	if m.download == nil {
 		m.Panel = panelSettings
 		m.Focus = focusModel
-		m.DockNote = "先填写模型路径"
+		m.SaveNote = modelCacheNote
+		m.DockNote = modelCacheNote
 		return
 	}
 	m.Downloading = true
