@@ -46,7 +46,7 @@
 | muted | `#5A5F6B` | on card ≥ 4.5:1 |
 | quiet | `#667085` | on card ≥ 4.5:1（小字） |
 | line | `#E8EAEE` | — |
-| accent | `#E8552B` | onAccent 对比 ≥ 4.5:1 |
+| accent | `#C94A22` | onAccent 对比 ≥ 4.5:1 |
 | accent.hover | `#B33A12` | |
 | accent.pressed | `#9A2F0E` | |
 | stage | `#15171C` | |
@@ -95,7 +95,7 @@
 | type.currentMeta | 12 | 500 | 16 | quiet |
 | type.hist | 15 | 400 | 22 | hist |
 | type.partial | 24–28 | 400 italic | 32–36 | partial |
-| type.empty | 13 | 400 | 18 | quiet |
+| type.empty | 13 | 400 | 18 | hist（Stage 上；勿用 quiet） |
 | type.textLink | 13 | 500 | 18 | muted→ink |
 | type.primaryBtn | 15 | 600 | 20 | onAccent |
 | type.body | 14 | 400 | 20 | ink |
