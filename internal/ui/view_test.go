@@ -258,6 +258,44 @@ func TestChromeLayout(t *testing.T) {
 	}
 }
 
+func TestIdleSharesListeningBottom(t *testing.T) {
+	idle := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	listen := g.NewTester(sampleListening().view, frameWidth, frameHeight)
+	start, ok := idle.Find("开始听")
+	if !ok {
+		t.Fatal("idle primary missing")
+	}
+	stop, ok := listen.Find("停止")
+	if !ok {
+		t.Fatal("listening primary missing")
+	}
+	hint, ok := idle.Find(emptyHint)
+	if !ok {
+		t.Fatal("idle hint missing")
+	}
+	startBottom := start.Y + start.H
+	stopBottom := stop.Y + stop.H
+	if abs(startBottom-stopBottom) > 8 {
+		t.Fatalf("idle primary bottom %.1f, listening primary bottom %.1f", startBottom, stopBottom)
+	}
+	if hint.Y+hint.H > start.Y+2 {
+		t.Fatalf("hint should sit above the primary, hint %.1f button %.1f", hint.Y, start.Y)
+	}
+	if hint.Y < float32(frameHeight)/2 {
+		t.Fatalf("idle hint is still in the upper half, y %.1f", hint.Y)
+	}
+	if hint.X > 80 {
+		t.Fatalf("idle hint is not on the listening left edge, x %.1f", hint.X)
+	}
+}
+
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func TestStageIsFlush(t *testing.T) {
 	img := g.Render(sampleEmpty().view, frameWidth, frameHeight, 1)
 	if img == nil {

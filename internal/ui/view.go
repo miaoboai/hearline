@@ -255,7 +255,10 @@ func (m *Model) emptyStage(c *g.Context) {
 	default:
 		hint = emptyHint
 	}
-	g.Column(c).Grow(1).Justify(g.Center).AlignItems(g.Center).Gap(GapBlock).Children(func() {
+	// Same bottom stack as a listening stage: hint where the current line
+	// sits, primary on the same lower edge as 「停止」.
+	g.Column(c).Grow(1).Gap(GapBlock).Children(func() {
+		g.Spacer(c)
 		if hint != "" {
 			col := colorHist
 			face := TypeEmpty
@@ -263,9 +266,11 @@ func (m *Model) emptyStage(c *g.Context) {
 				col = colorOnDark
 				face = TypeBody
 			}
-			text(c, hint, face, col)
+			text(c, hint, face, col).Shrink(0)
 		}
-		m.stageAction(c)
+		g.Row(c).Shrink(0).Children(func() {
+			m.stageAction(c)
+		})
 	})
 }
 
