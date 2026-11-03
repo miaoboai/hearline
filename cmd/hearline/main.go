@@ -107,6 +107,25 @@ func runGUI(args []string) int {
 		Chunk:       chunkOpts(cfg, true),
 		Config:      cfg,
 		Version:     version,
+		DownloadModel: func(ctx context.Context) error {
+			mu.Lock()
+			dir := current.ASR.ModelDir
+			mu.Unlock()
+			if dir == "" {
+				cache, err := os.UserCacheDir()
+				if err != nil {
+					return err
+				}
+				dir = filepath.Join(cache, "hearline", "sensevoice-small-q8")
+			}
+			if err := sensevoice.Download(ctx, dir); err != nil {
+				return err
+			}
+			mu.Lock()
+			current.ASR.ModelDir = dir
+			mu.Unlock()
+			return nil
+		},
 		SaveConfig: func(next config.Config) error {
 			if err := next.Validate(); err != nil {
 				return err
@@ -210,9 +229,11 @@ func runDemo(args []string) int {
 		}
 	}
 	if *shot != "" {
-		m := ui.Snapshot(finals(all), "官方测试 WAV（zh + en）", "SenseVoice-Small Q8 · CPU · "+fmt.Sprint(cfg.ASR.Threads())+" threads", llm.Describe(cfg.LLM))
+		m := ui.Snapshot(finals(all), "系统声", "已停止", "")
+		m.Threads = cfg.ASR.Threads()
 		m.WAV = shownPath(sensevoice.TestWav(paths.Dir, "zh.wav"))
-		m.ExportPath = "Hearline-纪要.md"
+		m.FileName = "zh.wav"
+		m.ExportPath = "Hearline-字幕.txt"
 		if err := ui.WritePNG(m, *shot); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -296,7 +317,9 @@ func runTranscribe(args []string) int {
 		}
 	}
 	if *shot != "" {
-		m := ui.Snapshot(finals(lines), *wav, cfg.ASR.Engine+" · CPU", llm.Describe(cfg.LLM))
+		m := ui.Snapshot(finals(lines), "系统声", "已停止", "")
+		m.FileName = filepath.Base(*wav)
+		m.WAV = *wav
 		m.WAV = shownPath(*wav)
 		if err := ui.WritePNG(m, *shot); err != nil {
 			fmt.Fprintln(os.Stderr, err)

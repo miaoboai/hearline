@@ -8,11 +8,10 @@ import (
 
 	"github.com/miaoboai/hearline/internal/config"
 	"github.com/miaoboai/hearline/internal/fault"
-	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
-// WriteReviewFrames draws the listen, empty, error, settings, about, and notes
+// WriteReviewFrames draws the listen, empty, listening, error, settings, and notes
 // surfaces. main may be nil; a sample transcript is used then.
 func WriteReviewFrames(dir string, main *Model) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -27,9 +26,9 @@ func WriteReviewFrames(dir string, main *Model) error {
 	}{
 		{"hearline-subs.png", main},
 		{"hearline-empty.png", sampleEmpty()},
+		{"hearline-listening.png", sampleListening()},
 		{"hearline-error.png", sampleError()},
 		{"hearline-settings.png", sampleSettings()},
-		{"hearline-about.png", sampleAbout()},
 		{"hearline-notes.png", sampleNotes()},
 	}
 	for _, frame := range frames {
@@ -49,14 +48,20 @@ func sampleLines() []pipeline.Line {
 }
 
 func sampleListen() *Model {
-	m := Snapshot(sampleLines(), "官方测试 WAV（zh + en）", "已准备", "")
-	m.WAV = "models/…/test_wavs/zh.wav"
+	m := Snapshot(sampleLines(), "系统声", "已停止", "")
+	m.DockNote = "已停止"
 	return m
 }
 
 func sampleEmpty() *Model {
-	m := Snapshot(nil, "系统声", "已准备", "")
-	m.WAV = ""
+	return Snapshot(nil, "系统声", "已准备", "")
+}
+
+func sampleListening() *Model {
+	m := Snapshot(sampleLines()[:1], "系统声", "正在听", "")
+	m.Listening = true
+	m.ShownFor = 12 * time.Second
+	m.Lines = append(m.Lines, pipeline.Line{Text: "还在听这一句", Partial: true})
 	return m
 }
 
@@ -68,31 +73,20 @@ func sampleError() *Model {
 }
 
 func sampleSettings() *Model {
-	m := Snapshot(nil, "", "已准备", "")
-	m.Screen = screenSettings
+	m := Snapshot(nil, "系统声", "已准备", "")
+	m.Panel = panelSettings
 	m.loadDraft(config.Config{
-		ASR: config.ASR{Language: "auto", VAD: "mid"},
+		ASR: config.ASR{Language: "auto", VAD: "mid", NumThreads: 2},
 		LLM: config.LLM{Backend: "local", Local: config.LocalLLM{Runtime: "llama.cpp"}},
 	})
-	m.ExportPath = "Hearline-纪要.md"
-	return m
-}
-
-func sampleAbout() *Model {
-	m := sampleSettings()
-	m.Screen = screenAbout
+	m.Threads = 2
+	m.ExportPath = "Hearline-字幕.txt"
 	return m
 }
 
 func sampleNotes() *Model {
-	m := Snapshot(sampleLines(), "官方测试 WAV（zh + en）", "已准备", "")
-	m.Screen = screenNotes
-	m.wantNotes = true
-	m.llm = config.LLM{Backend: "remote", Remote: config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}}
-	m.Doc = notes.Doc{
-		Points: []string{"开饭时间是早上 9 点到下午 5 点。", "族长召来了男孩。"},
-		Todos:  []string{"把 50 块金子交给男孩。"},
-		Terms:  []notes.Term{{Word: "tribal chieftain", Note: "族长"}},
-	}
+	m := Snapshot(sampleLines(), "系统声", "已停止", "")
+	m.Panel = panelNotes
+	m.llm = config.LLM{Backend: "local", Local: config.LocalLLM{Runtime: "llama.cpp"}}
 	return m
 }

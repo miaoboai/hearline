@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	mygoui "github.com/egoist/mygo/ui"
@@ -32,6 +33,7 @@ type Options struct {
 	Config         config.Config
 	Version        string
 	SaveConfig     func(config.Config) error
+	DownloadModel  func(context.Context) error
 }
 
 // Model is the subtitle window state. The view reads it on the UI thread.
@@ -65,19 +67,32 @@ type Model struct {
 	NotesBusy  bool
 	NotesErr   string
 	// follow is the line count last scrolled into view.
-	follow    int
-	notesGen  int
-	wantNotes bool
-	reloadASR bool
-	loadGen   atomic.Uint64
+	follow      int
+	notesGen    int
+	wantNotes   bool
+	reloadASR   bool
+	loadGen     atomic.Uint64
+	Panel       int
+	More        bool
+	ConfirmQuit bool
+	allowClose  bool
+	OnTop       bool
+	Started     time.Time
+	ShownFor    time.Duration
+	FileName    string
+	DockNote    string
+	Downloading bool
+	Threads     int
+	notesRun    notes.Runner
 
 	llm  config.LLM
 	cfg  config.Config
 	save func(config.Config) error
 
-	load    func() (asr.Recognizer, error)
-	capture func(context.Context, string) (<-chan []float32, error)
-	chunk   pipeline.Options
+	load     func() (asr.Recognizer, error)
+	capture  func(context.Context, string) (<-chan []float32, error)
+	download func(context.Context) error
+	chunk    pipeline.Options
 
 	win    *mygo.Window
 	rec    asr.Recognizer
@@ -96,6 +111,8 @@ func Run(opt Options) error {
 		Version:    opt.Version,
 		ExportPath: defaultExportPath(),
 		save:       opt.SaveConfig,
+		download:   opt.DownloadModel,
+		Threads:    opt.Config.ASR.Threads(),
 	}
 	m.loadDraft(opt.Config)
 	if m.load == nil || m.capture == nil {
@@ -107,14 +124,21 @@ func Run(opt Options) error {
 			Title:           "Hearline",
 			Width:           frameWidth,
 			Height:          frameHeight,
-			MinWidth:        1040,
-			MinHeight:       700,
+			MinWidth:        920,
+			MinHeight:       640,
 			BackgroundColor: "#F3F4F6",
 			Content:         mygoui.View(m.view),
 		})
 		m.win = win
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if m.Listening && !m.allowClose {
+				e.PreventDefault()
+				win.Update(func() { m.ConfirmQuit = true })
+			}
+		})
 		win.OnClosed(func() {
 			m.closed.Store(true)
+			m.notesRun.Stop()
 			m.stop()
 		})
 		go m.loadModel()
@@ -265,15 +289,21 @@ func (m *Model) start(id string) {
 		return
 	}
 	if id == "" {
-		m.Focus = focusWAV
+		m.More = true
+		m.DockNote = "先选择一个音频文件"
 		return
 	}
 	m.clearFault(fault.DecodeBacklog)
 	m.clearFault(fault.CaptureUnavailable)
+	m.clearFault(fault.FileInvalid)
+	m.DockNote = ""
+	m.ConfirmQuit = false
+	m.Started = time.Now()
+	m.ShownFor = 0
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.Listening = true
-	m.Status = "正在听 " + id
+	m.Status = "正在听"
 	go m.session(ctx, id)
 }
 
@@ -294,7 +324,7 @@ func (m *Model) session(ctx context.Context, id string) {
 	}()
 	ch, err := m.capture(ctx, id)
 	if err != nil {
-		m.reportCapture(err.Error())
+		m.reportCapture(id, err.Error())
 		return
 	}
 	err = pipeline.Run(ctx, m.rec, ch, m.chunk, func(line pipeline.Line) {
@@ -308,12 +338,17 @@ func (m *Model) session(ctx context.Context, id string) {
 	}
 }
 
-func (m *Model) reportCapture(msg string) {
+func (m *Model) reportCapture(id, msg string) {
 	if m.closed.Load() || m.win == nil {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "capture: %s\n", msg)
 	code := fault.Classify(msg)
+	if len(id) > 4 && id[:4] == "wav:" && code != fault.Permission {
+		if code == "" || code == fault.ModelMissing || code == fault.CaptureUnavailable {
+			code = fault.FileInvalid
+		}
+	}
 	if code == "" {
 		code = fault.CaptureUnavailable
 	}
@@ -370,8 +405,8 @@ func (m *Model) maybeReload() {
 }
 
 const (
-	frameWidth  = 1180
-	frameHeight = 800
+	frameWidth  = 1120
+	frameHeight = 760
 )
 
 // Snapshot is a display-only model used by the headless screenshot.
@@ -384,14 +419,15 @@ func Snapshot(lines []pipeline.Line, source, status, llm string) *Model {
 		Ready:      true,
 		Selected:   source,
 		Version:    "0.1",
-		ExportPath: "Hearline-纪要.md",
+		ExportPath: "Hearline-字幕.txt",
 		LangLabel:  "自动",
 		VADLabel:   "标准",
+		Threads:    2,
 	}
 	m.llm = config.LLM{Backend: "local", Local: config.LocalLLM{Runtime: "llama.cpp"}}
 	if source != "" {
 		m.Labels = []string{source}
-		m.Sources = []audio.Source{{ID: "wav:", Name: source, Kind: "file"}}
+		m.Sources = []audio.Source{{ID: "system", Name: source, Kind: "system"}}
 	}
 	return m
 }

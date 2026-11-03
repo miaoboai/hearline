@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	g "github.com/egoist/mygo/ui"
@@ -11,53 +12,15 @@ import (
 )
 
 func (m *Model) settingsPage(c *g.Context) {
-	remoteOn := m.remoteDisclosure()
-	g.Scroll(c).Grow(1).Gap(12).Children(func() {
-		card(c, func() {
-			g.Text(c, "识别").FontSize(13).FontWeight(650).TextColor(colorQuiet)
-			g.Row(c).Gap(12).Children(func() {
-				labeledGrow(c, "语言", func() {
-					g.Select(c.Key("lang"), &m.LangLabel, langLabels).Grow(1)
-				})
-				labeledGrow(c, "灵敏度", func() {
-					g.Select(c.Key("vad"), &m.VADLabel, vadLabels).Grow(1)
-				})
-			})
-			labeled(c, "模型路径", func() {
-				field := g.TextInput(c.Key("model"), &m.ModelDir).Placeholder("留空则自动查找").MinWidth(360).Grow(1)
-				if m.Focus == focusModel {
-					field.Focus()
-					m.Focus = ""
-				}
-			})
-		})
-		card(c, func() {
-			g.Text(c, "纪要").FontSize(13).FontWeight(650).TextColor(colorQuiet)
-			g.Segmented(c.Key("backend"), &m.Backend, "本机", "远程").Shrink(0)
-			if m.Backend == 1 {
-				labeled(c, "地址", func() {
-					g.TextInput(c.Key("base"), &m.BaseURL).Placeholder("https://…/v1").MinWidth(360).Grow(1)
-				})
-				g.Row(c).Gap(12).Children(func() {
-					labeledGrow(c, "模型", func() {
-						g.TextInput(c.Key("remote-model"), &m.ModelName).Placeholder("模型名").Grow(1)
-					})
-					labeledGrow(c, "密钥", func() {
-						g.TextInput(c.Key("key"), &m.APIKey).Password().Placeholder("只保存在本机").Grow(1)
-					})
-				})
-			} else {
-				g.Text(c, notes.ReasonLocal).FontSize(14).TextColor(colorMuted)
-			}
-		})
-		card(c, func() {
-			privacyBlock(c, remoteOn)
+	g.Column(c).Grow(1).Gap(12).Children(func() {
+		g.Scroll(c).Grow(1).Gap(12).Children(func() {
+			m.settingsCards(c)
 		})
 		g.Row(c).Gap(12).AlignItems(g.End).Shrink(0).Children(func() {
 			labeledGrow(c, "导出到", func() {
 				g.TextInput(c.Key("export-path"), &m.ExportPath).MinWidth(360).Grow(1)
 			})
-			if g.PrimaryButton(c.Key("save"), "保存").Shrink(0).Clicked() {
+			if g.PrimaryButton(c.Key("save"), "保存").Shrink(0).MinHeight(40).Clicked() {
 				m.saveSettings()
 			}
 		})
@@ -67,24 +30,80 @@ func (m *Model) settingsPage(c *g.Context) {
 	})
 }
 
-func (m *Model) aboutPage(c *g.Context) {
+func (m *Model) settingsCards(c *g.Context) {
+	g.Column(c).Gap(12).Children(func() {
+		g.Row(c).Gap(12).AlignItems(g.Start).Children(func() {
+			g.Column(c).Grow(1).Children(func() {
+				card(c, func() {
+					g.Text(c, "识别").FontSize(13).FontWeight(650).TextColor(colorQuiet)
+					g.Row(c).Gap(12).Children(func() {
+						labeledGrow(c, "语言", func() {
+							g.Select(c.Key("lang"), &m.LangLabel, langLabels).Grow(1)
+						})
+						labeledGrow(c, "灵敏度", func() {
+							g.Select(c.Key("vad"), &m.VADLabel, vadLabels).Grow(1)
+						})
+					})
+					labeled(c, "模型路径", func() {
+						field := g.TextInput(c.Key("model"), &m.ModelDir).Placeholder("留空则自动查找").Grow(1)
+						if m.Focus == focusModel {
+							field.Focus()
+							m.Focus = ""
+						}
+					})
+				})
+			})
+			g.Column(c).Grow(1).Children(func() {
+				card(c, func() {
+					g.Text(c, "纪要").FontSize(13).FontWeight(650).TextColor(colorQuiet)
+					g.Segmented(c.Key("backend"), &m.Backend, "本机", "远程").Shrink(0)
+					if m.Backend == 1 {
+						labeled(c, "地址", func() {
+							g.TextInput(c.Key("base"), &m.BaseURL).Placeholder("https://…/v1").Grow(1)
+						})
+						g.Row(c).Gap(12).Children(func() {
+							labeledGrow(c, "模型", func() {
+								g.TextInput(c.Key("remote-model"), &m.ModelName).Placeholder("模型名").Grow(1)
+							})
+							labeledGrow(c, "密钥", func() {
+								g.TextInput(c.Key("key"), &m.APIKey).Password().Placeholder("只保存在本机").Grow(1)
+							})
+						})
+					} else {
+						g.Text(c, notes.ReasonLocal).FontSize(14).TextColor(colorMuted)
+					}
+				})
+			})
+		})
+		card(c, func() {
+			g.Row(c).AlignItems(g.Center).Gap(12).Children(func() {
+				g.Text(c, "关于").FontSize(13).FontWeight(650).TextColor(colorQuiet).Grow(1)
+				g.Text(c, "叠在其他窗口上").FontSize(14).TextColor(colorInk)
+				if g.Switch(c.Key("ontop"), &m.OnTop).Changed() && m.win != nil {
+					m.win.SetAlwaysOnTop(m.OnTop)
+				}
+			})
+			m.aboutBlock(c)
+		})
+	})
+}
+
+func (m *Model) aboutBlock(c *g.Context) {
 	remoteOn := m.remoteDisclosure()
 	version := m.Version
 	if version == "" {
 		version = "0.1"
 	}
-	g.Column(c).Grow(1).Children(func() {
-		card(c, func() {
-			g.Text(c, "Hearline").FontSize(22).FontWeight(650).TextColor(colorInk)
-			g.Text(c, version).FontSize(13).TextColor(colorQuiet)
-			g.Text(c, "SenseVoice-Small · 本机 CPU").FontSize(14).TextColor(colorMuted)
-			g.Column(c).Gap(6).Padding(8, 0, 0, 0).Children(func() {
-				privacyBlock(c, remoteOn)
-			})
-			g.Text(c, shortcutHint()+"  ·  Esc 停止").FontSize(12).TextColor(colorQuiet)
-		})
-		g.Spacer(c)
+	threads := m.Threads
+	if threads <= 0 {
+		threads = 2
+	}
+	g.Text(c, fmt.Sprintf("Hearline %s · SenseVoice-Small · 本机 CPU · 线程 %d/4", version, threads)).FontSize(14).FontWeight(650).TextColor(colorInk)
+	g.Column(c).Gap(6).Padding(4, 0, 0, 0).Children(func() {
+		privacyBlock(c, remoteOn)
 	})
+	g.Text(c, "系统声在 Pulse / PipeWire 里通常以 .monitor 结尾。").FontSize(13).TextColor(colorQuiet)
+	g.Text(c, "空格 开始或停止 · Ctrl+E 导出 · Ctrl+Shift+C 复制当前句 · Ctrl+, 设置 · Esc 关闭").FontSize(13).TextColor(colorMuted)
 }
 
 func (m *Model) notesPage(c *g.Context) {
@@ -95,9 +114,10 @@ func (m *Model) notesPage(c *g.Context) {
 				g.Text(c, "纪要").FontSize(22).FontWeight(650).TextColor(colorInk).Grow(1)
 				if !ok {
 					g.Text(c, reason).FontSize(13).TextColor(colorQuiet)
+					g.Button(c.Key("make-notes"), "生成纪要").Shrink(0).MinHeight(40).Disabled(true)
 					return
 				}
-				btn := g.PrimaryButton(c.Key("make-notes"), "整理").Shrink(0)
+				btn := g.PrimaryButton(c.Key("make-notes"), "生成纪要").Shrink(0).MinHeight(40)
 				if m.NotesBusy || len(m.finals()) == 0 {
 					btn = btn.Disabled(true)
 				}
@@ -107,6 +127,7 @@ func (m *Model) notesPage(c *g.Context) {
 				}
 			})
 			if !ok {
+				g.Text(c, "听写一段时间后，可在这里生成纪要").FontSize(15).TextColor(colorQuiet)
 				return
 			}
 			if m.NotesBusy {
@@ -115,7 +136,7 @@ func (m *Model) notesPage(c *g.Context) {
 				g.Text(c, m.NotesErr).FontSize(14).TextColor(colorMuted)
 			}
 			if docEmpty(m.Doc) && !m.NotesBusy && m.NotesErr == "" {
-				g.Text(c, "整理后，要点会写在这里").FontSize(14).TextColor(colorQuiet)
+				g.Text(c, "听写一段时间后，可在这里生成纪要").FontSize(15).TextColor(colorQuiet)
 				return
 			}
 			noteSection(c, "要点", m.Doc.Points)
@@ -179,7 +200,7 @@ func (m *Model) remoteDisclosure() bool {
 	if m == nil {
 		return false
 	}
-	if m.Screen == screenSettings {
+	if m.Panel == panelSettings {
 		return m.Backend == 1
 	}
 	return m.llm.Backend == "remote"

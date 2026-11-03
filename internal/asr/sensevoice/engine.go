@@ -11,6 +11,7 @@ import (
 
 	"github.com/miaoboai/hearline/internal/asr"
 	"github.com/miaoboai/hearline/internal/config"
+	"github.com/miaoboai/hearline/internal/resident"
 )
 
 // Engine is a CPU SenseVoice-Small Q8 recognizer.
@@ -49,8 +50,12 @@ func Open(cfg config.ASR) (asr.Recognizer, error) {
 	conf.DecodingMethod = "greedy_search"
 
 	fmt.Fprintf(os.Stderr, "loading SenseVoice-Small Q8 (%s) cpu threads=%d itn=%d\n", paths.Model, threads, useITN)
+	if err := resident.HoldASR(); err != nil {
+		return nil, err
+	}
 	rec := sherpa.NewOfflineRecognizer(&conf)
 	if rec == nil {
+		resident.ReleaseASR()
 		return nil, fmt.Errorf("sherpa-onnx 未能加载 %s（确认 tokens.txt 与 CPU 版 libsherpa-onnx 可用）", paths.Model)
 	}
 	return &Engine{rec: rec, id: "sensevoice-small-q8"}, nil
@@ -101,6 +106,7 @@ func (e *Engine) Close() error {
 	if e.rec != nil {
 		sherpa.DeleteOfflineRecognizer(e.rec)
 		e.rec = nil
+		resident.ReleaseASR()
 	}
 	return nil
 }

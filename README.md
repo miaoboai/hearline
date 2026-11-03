@@ -33,11 +33,11 @@
    地址或模型名缺了，按钮仍是灰色，原因是「先在设置里填写远程服务」。配齐之后，「纪要」会打开整理页，只发送已经确定的句子。
 3. **切换粒度** — v0.1 是全局一个后端。
 4. **安全** — key 只在这份用户文件里，`hearline` 打印配置时会打成 `***`，不进字幕，也不进导出的 Markdown。
-5. **失败** — 远程整理失败时界面写「这次没整理出来」。不会用摘录冒充模型纪要。`llm.fallback_to_local` 仍保留；本地路径返回「尚未接入」。
+5. **失败** — 远程整理失败时界面写「这次没整理出来」，错误里的 API key 会换成 `***`，不会打到标准错误。不会用摘录冒充模型纪要。`llm.fallback_to_local` 只有在本机推理器真正链上、并且能单独进内存时才会走；v0.1 没链上，远程失败就停在远程失败。识别器还在内存里时，本机模型也不会被加载。
 
-ASR 与 LLM 独立。v0.1 的识别始终是本机 CPU。远程只在你启用纪要、并且点了整理之后，才会收到文字。
+ASR 与 LLM 独立。v0.1 的识别始终是本机 CPU。远程只在你启用纪要、并且点了整理之后，才会收到文字。整理是单线程的：新的一次会取消上一次，只保留最新的确定句，先要 JSON，再写成 Markdown。
 
-导出不依赖纪要。顶栏的「导出」把确定的句子写成 Markdown（默认 `~/Hearline-纪要.md`）。半句不计数、不导出、不送去整理。还没有确定的句子时，导出是灰色的。
+导出不依赖纪要。顶栏「导出」把确定的句子写成文本（`.txt`）或字幕（`.srt`），默认 `~/Hearline-字幕.txt`，扩展名随格式换。纪要 Markdown 要等真正整理出结果才可点。半句不计数、不导出、不送去整理。还没有确定的句子时，导出是灰色的。
 
 示例：
 
@@ -100,16 +100,16 @@ make demo
 1. 若 `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/` 里没有 Q8 模型，就从 sherpa-onnx 的官方 int8 包下载（压缩包约 156MB，权重 `model.int8.onnx` 约 229MB）
 2. 用包内 `test_wavs/zh.wav` 和 `en.wav` 做 CPU 解码
 3. 把确定的句子写到 `/tmp/hearline-subs.txt`，纪要没启用时把同一批句子写到 `/tmp/hearline-notes.md`（标准错误会写「纪要未启用，已导出字幕」）
-4. 把界面画成 `/tmp/hearline-subs.png`，并在同目录写出空舞台、模型缺失、设置、关于、纪要几帧（不需要显示器）
+4. 把界面画成 `/tmp/hearline-subs.png`，并在同目录写出空舞台、正在听、模型缺失、设置、纪要几帧（不需要显示器）
 
-仓库里的参考画面：
+仓库里的参考画面（无显示器渲染，不是点过的窗口）：
 
-- `docs/v0.1-subtitles.png` 听写，一句当前字幕，历史只有正文
-- `docs/v0.1-empty.png` 空舞台，只有一行弱提示
-- `docs/v0.1-error.png` 模型缺失，动作是「填写路径」
-- `docs/v0.1-settings.png` 设置，含隐私两句
-- `docs/v0.1-about.png` 关于
-- `docs/v0.1-notes.png` 纪要整理结果
+- `docs/v0.1-empty.png` 就绪空舞台：「选一个音源，开始听」
+- `docs/v0.1-listening.png` 正在听，历史一句加淡色半句，顶栏 `正在听 · 00:12`
+- `docs/v0.1-subtitles.png` 已停止，字幕留在舞台上，可以清空
+- `docs/v0.1-error.png` 找不到识别模型，动作是「下载模型」
+- `docs/v0.1-settings.png` 设置：识别、纪要、关于与隐私、置顶、导出路径
+- `docs/v0.1-notes.png` 纪要空态；本机模型未接入时按钮停用
 
 模型地址：
 
@@ -127,11 +127,13 @@ make demo
 
 查找模型的顺序：`--model-dir`、`HEARLINE_MODEL_DIR`、仓库里的 `models/...`、用户缓存 `~/Library` 或 `~/.cache/hearline/sensevoice-small-q8`。
 
-窗口里的闭环是：刷新音源 → 选一个 Pulse 源（名字以 `.monitor` 结尾的是系统声）或填 WAV → 点一次「开始听」。正在听的时候，同一个按钮变成「停止」。SenseVoice 是离线模型，所以字幕按句出现，连续说话最长约 8 秒出一行；直播时每 2 秒会闪一下半句，半句是斜体淡色，不进句数。
+窗口是一块舞台，不是多页调试台。顶栏只有 Hearline、会话状态（准备中 / 正在听 · 时长 / 已停止 · 句数 / 出错）、纪要、设置、导出。不再把 SenseVoice、线程、LLM 胶囊放在顶栏。停靠栏是音源、刷新、开始听 / 停止；WAV 收在「更多」里，只显示文件名。舞台在空、加载、出错时还是同一块深色区域。停止后字幕留着，可以清空。
 
-快捷键：Ctrl+L（macOS 为 ⌘L）开始或停止，Ctrl+E 导出，Ctrl+, 打开设置，Esc 停止，或从设置 / 关于 / 纪要回到听写。关掉窗口会停止采集。v0.1 没有「收起停靠、关掉不等于停止」；那是以后的事，这里不假装有。
+SenseVoice 是离线模型，所以字幕按句出现，连续说话最长约 8 秒出一行。直播时半句只解码最近约 3 秒，并且队列里最多留一条半句；确定的句子不会被丢掉。解码队列有上限，只有一个工作线程。半句是斜体淡色，不进句数。线程数夹在 1 到 4。
 
-出错时只按真实原因给动作：找不到模型是「填写路径」，音源听不到是「更换音源」，识别跟不上只提示句子会稍晚出现，没有一个万能的重试。
+快捷键（焦点在输入框时，空格留给输入）：空格开始或停止，Ctrl+E（macOS 为 ⌘E）导出 SRT，Ctrl+Shift+C 复制当前句，Ctrl+, 打开设置，Esc 关闭设置或纪要；面板都关着时 Esc 停止。正在听时关窗口，会先问「停止并退出？」。
+
+出错只给短中文和能做的动作：找不到模型是「下载模型」，模型损坏是「重试」，音源听不到是「改音源」，文件读不了是「重选」。没有权限、识别跟不上，只提示，不放一个假按钮。
 
 `go test -short ./...` 不加载模型。`make test-asr` 会真正加载 Q8 并检查中文样例里有「点」和「下午」。
 
@@ -152,9 +154,10 @@ internal/asr              Recognizer 接口
 internal/asr/sensevoice   SenseVoice-Small Q8 下载与 sherpa-onnx CPU 推理
 internal/asr/mock         无模型时的字幕接线
 internal/asr/qwen3        占位，返回未接入
-internal/pipeline         音源块 → 切句 → 识别 → 字幕行
-internal/fault            模型缺失、音源不可用、解码积压
-internal/notes            确定的句子、远程整理、Markdown
+internal/pipeline         音源块 → 切句 → 有界解码队列 → 字幕行
+internal/resident         识别器与本机模型不能同时留在内存里
+internal/fault            稳定错误码和短中文
+internal/notes            确定的句子、单线程整理、TXT / SRT / Markdown
 internal/llm              本地 / 远程配置与 OpenAI 兼容客户端
 internal/config           config.json
 internal/ui               MyGo 窗口；无显示器时也能画 PNG
@@ -164,18 +167,18 @@ internal/ui               MyGo 窗口；无显示器时也能画 PNG
 
 ### 一期 · 桌面本地听写与字幕（本分支在做的范围）
 
-- MyGo 窗口：听写、设置、关于、纪要
+- MyGo 单窗口：字幕舞台、设置、纪要
 - Linux 系统声 / 麦克风（Pulse / PipeWire）；macOS、Windows 采集仍是明确缺口
-- SenseVoice-Small Q8，CPU，按句解码；灵敏度可调
+- SenseVoice-Small Q8，CPU，按句解码；半句只解尾窗；灵敏度可调；线程最多 4
 - 无模型时可用 `--engine mock` 看字幕是否在动
-- 确定的句子可导出 Markdown。远程纪要配齐后可以整理；本地 llama.cpp 仍未接入，按钮保持停用
-- LLM 不进字幕环
+- 确定的句子可导出 TXT / SRT。远程纪要配齐后可以整理；本地 llama.cpp 仍未接入，按钮保持停用
+- LLM 不进字幕环。识别器在内存里时不加载本机模型
 
 ### 二期 · 本机模型与传译
 
 - 把本地小模型真正跑起来
 - 按住说话 → ASR + 翻译 + TTS → 虚拟麦
-- 会话再补 SRT；收起停靠留到这一期，不在 v0.1 里做假
+- 收起停靠留到这一期，不在 v0.1 里做假
 
 ### 三期 · 移动端遥控与看字幕
 
@@ -193,7 +196,7 @@ internal/ui               MyGo 窗口；无显示器时也能画 PNG
 
 - SenseVoice 在 sherpa-onnx 里是离线模型，v0.1 用切句模拟实时，不是 token 级流式。
 - 打开 ITN 时英文样例可能把 “gold” 记成 “code”。这是模型行为，不是后处理写死的。
-- 本地 LLM 推理、Qwen3-ASR、macOS 系统声、Windows WASAPI 都还没接。关掉窗口即停止，没有独立的停靠窗。
+- 本地 LLM 推理、Qwen3-ASR、macOS 系统声、Windows WASAPI 都还没接。正在听时关掉窗口会先确认，确认后停止采集。没有独立的停靠窗。
 - 参考客户端 `client-pulse-vcam` 未能读取，因此没有照搬它的托盘或预览实现。
 
 ## 许可

@@ -58,7 +58,7 @@ func TestRenderSnapshot(t *testing.T) {
 }
 
 func TestRenderStates(t *testing.T) {
-	for _, m := range []*Model{sampleEmpty(), sampleError(), sampleSettings(), sampleAbout(), sampleNotes()} {
+	for _, m := range []*Model{sampleEmpty(), sampleListening(), sampleError(), sampleSettings(), sampleNotes()} {
 		if g.Render(m.view, frameWidth, frameHeight, 1) == nil {
 			t.Fatal("nil frame")
 		}
@@ -69,6 +69,9 @@ func TestRenderStates(t *testing.T) {
 	ok, reason := notes.Available(sampleListen().llm)
 	if ok || !strings.Contains(reason, "尚未接入") {
 		t.Fatalf("default notes ok=%v reason=%q", ok, reason)
+	}
+	if sampleListening().clock() != "00:12" {
+		t.Fatalf("clock %s", sampleListening().clock())
 	}
 }
 
@@ -81,11 +84,6 @@ func TestDumpFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := WriteReviewFrames(dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	listen := sampleListen()
-	listen.Listening = true
-	if err := WritePNG(listen, filepath.Join(dir, "hearline-listening.png")); err != nil {
 		t.Fatal(err)
 	}
 	partial := sampleListen()
@@ -102,7 +100,8 @@ func TestDumpFrames(t *testing.T) {
 	if err := WritePNG(remote, filepath.Join(dir, "hearline-settings-remote.png")); err != nil {
 		t.Fatal(err)
 	}
-	about := sampleAbout()
+	about := sampleSettings()
+	about.Panel = panelListen
 	about.llm.Backend = "remote"
 	about.llm.Remote = config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}
 	if err := WritePNG(about, filepath.Join(dir, "hearline-about-remote.png")); err != nil {
@@ -128,14 +127,20 @@ func TestPrivacyFollowsBackend(t *testing.T) {
 	if !settings.remoteDisclosure() {
 		t.Fatal("settings toggle should show the remote sentence before save")
 	}
-	about := sampleAbout()
+	about := sampleSettings()
+	about.Panel = panelListen
 	if about.remoteDisclosure() {
-		t.Fatal("about follows the saved backend")
+		t.Fatal("listen surface follows the saved backend")
 	}
 	about.Backend = 1
 	if about.remoteDisclosure() {
-		t.Fatal("about must not follow an unsaved settings toggle")
+		t.Fatal("listen surface must not follow an unsaved settings toggle")
 	}
+	about.Panel = panelSettings
+	if !about.remoteDisclosure() {
+		t.Fatal("settings toggle should show the remote sentence before save")
+	}
+	about.Panel = panelListen
 	about.llm.Backend = "remote"
 	if !about.remoteDisclosure() {
 		t.Fatal("saved remote backend should disclose text leaving the machine")
@@ -145,6 +150,18 @@ func TestPrivacyFollowsBackend(t *testing.T) {
 	}
 	if asrNeedsReload(config.ASR{Language: "zh", VAD: "mid"}, config.ASR{Language: "zh", VAD: "high"}) {
 		t.Fatal("sensitivity is applied on the chunker, not by reloading the model")
+	}
+}
+
+func TestFootnoteQuietOnFault(t *testing.T) {
+	m := sampleError()
+	if got := m.footnote(); got != "" {
+		t.Fatalf("error footnote %q", got)
+	}
+	cold := sampleEmpty()
+	cold.Ready = false
+	if got := cold.footnote(); got != "正在加载识别器" {
+		t.Fatalf("cold footnote %q", got)
 	}
 }
 
