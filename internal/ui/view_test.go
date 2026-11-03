@@ -1,20 +1,29 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	g "github.com/egoist/mygo/ui"
 
+	"github.com/miaoboai/hearline/internal/config"
+	"github.com/miaoboai/hearline/internal/fault"
+	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
 func TestRenderSnapshot(t *testing.T) {
 	m := Snapshot([]pipeline.Line{
-		{Text: "开饭时间早上9点至下午5点。", Language: "zh", Start: 720 * time.Millisecond, End: 5200 * time.Millisecond},
-		{Text: "The tribal chieftain called for the boy.", Language: "en", Start: 1100 * time.Millisecond, End: 3460 * time.Millisecond},
-		{Text: "And presented him with 50 pieces of gold.", Language: "en", Start: 3820 * time.Millisecond, End: 7100 * time.Millisecond},
-	}, "官方测试 WAV（zh + en）", "SenseVoice-Small Q8 · CPU · 4 threads", "本地优先 · llama.cpp · 未设置模型路径（字幕环不调用）")
+		{Text: "开饭时间早上9点至下午5点。", Language: "zh", Start: 720 * time.Millisecond},
+		{Text: "还在听", Partial: true},
+		{Text: "And presented him with 50 pieces of gold.", Language: "en", Start: 3820 * time.Millisecond},
+	}, "官方测试 WAV（zh + en）", "已准备", "")
+	if len(m.finals()) != 2 {
+		t.Fatalf("finals %d", len(m.finals()))
+	}
 	img := g.Render(m.view, frameWidth, frameHeight, 1)
 	if img == nil {
 		t.Fatal("nil image")
@@ -48,48 +57,103 @@ func TestRenderSnapshot(t *testing.T) {
 	}
 }
 
-func TestRenderHistoryScroll(t *testing.T) {
-	lines := make([]pipeline.Line, 8)
-	for i := range lines {
-		lines[i] = pipeline.Line{
-			Text:     "字幕行",
-			Language: "zh",
-			Start:    time.Duration(i) * time.Second,
-			End:      time.Duration(i+1) * time.Second,
+func TestRenderStates(t *testing.T) {
+	for _, m := range []*Model{sampleEmpty(), sampleError(), sampleSettings(), sampleAbout(), sampleNotes()} {
+		if g.Render(m.view, frameWidth, frameHeight, 1) == nil {
+			t.Fatal("nil frame")
 		}
 	}
-	m := Snapshot(lines, "系统声", "已加载 sensevoice-small-q8 · CPU", "远程 OpenAI 兼容 · gpt-4.1-mini · https://example · key 已保存（字幕环不调用）")
-	m.Listening = true
-	img := g.Render(m.view, frameWidth, frameHeight, 1)
-	if img == nil {
-		t.Fatal("nil image")
+	if sampleError().Fault != fault.ModelMissing {
+		t.Fatal("error frame lost its code")
+	}
+	ok, reason := notes.Available(sampleListen().llm)
+	if ok || !strings.Contains(reason, "尚未接入") {
+		t.Fatalf("default notes ok=%v reason=%q", ok, reason)
 	}
 }
 
-func TestStatusChips(t *testing.T) {
-	if got := engineChip("sensevoice-small-q8", ""); got != "SenseVoice · Q8" {
-		t.Fatalf("engine chip %q", got)
+func TestDumpFrames(t *testing.T) {
+	dir := t.TempDir()
+	if env := os.Getenv("HEARLINE_FRAMES"); env != "" {
+		dir = env
 	}
-	if got := cpuChip("SenseVoice-Small Q8 · CPU · 4 threads"); got != "CPU · 4 线程" {
-		t.Fatalf("cpu chip %q", got)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if got := llmChip("本地优先 · llama.cpp · 未设置模型路径（字幕环不调用）"); got != "LLM · 本地" {
-		t.Fatalf("local llm chip %q", got)
+	if err := WriteReviewFrames(dir, nil); err != nil {
+		t.Fatal(err)
 	}
-	if got := llmChip("远程 OpenAI 兼容 · gpt · https://example · key 已保存（字幕环不调用）"); got != "LLM · 远程" {
-		t.Fatalf("remote llm chip %q", got)
+	listen := sampleListen()
+	listen.Listening = true
+	if err := WritePNG(listen, filepath.Join(dir, "hearline-listening.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := footerStatus(&Model{Status: "SenseVoice-Small Q8 · CPU · 4 threads"}); got != "可以开始听" {
-		t.Fatalf("footer %q", got)
+	partial := sampleListen()
+	partial.Lines = append(partial.Lines, pipeline.Line{Text: "还在听这一句", Partial: true})
+	if err := WritePNG(partial, filepath.Join(dir, "hearline-partial.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := deviceNote("pulse: connection refused"); got != "没有连上系统声，WAV 仍然可以播放" {
-		t.Fatalf("device note %q", got)
+	remote := sampleSettings()
+	remote.Backend = 1
+	remote.BaseURL = "https://example.invalid/v1"
+	remote.ModelName = "notes"
+	remote.llm.Backend = "remote"
+	remote.llm.Remote = config.RemoteLLM{BaseURL: remote.BaseURL, Model: remote.ModelName}
+	if err := WritePNG(remote, filepath.Join(dir, "hearline-settings-remote.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := langLabel("zh"); got != "中文" {
-		t.Fatalf("lang %q", got)
+	about := sampleAbout()
+	about.llm.Backend = "remote"
+	about.llm.Remote = config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}
+	if err := WritePNG(about, filepath.Join(dir, "hearline-about-remote.png")); err != nil {
+		t.Fatal(err)
 	}
+	miss := sampleEmpty()
+	miss.Fault = fault.CaptureUnavailable
+	if err := WritePNG(miss, filepath.Join(dir, "hearline-capture.png")); err != nil {
+		t.Fatal(err)
+	}
+	t.Log(dir)
+}
+
+func TestPrivacyFollowsBackend(t *testing.T) {
+	if privacyAudio != "听写在本机完成，音频不会上传。" || privacyRemote != "若纪要选用远程服务，只会发送已识别的文字，不会发送音频。" || privacyOff != "当前纪要未启用远程" {
+		t.Fatal("privacy copy drifted")
+	}
+	settings := sampleSettings()
+	if settings.remoteDisclosure() {
+		t.Fatal("local settings should mute the remote line")
+	}
+	settings.Backend = 1
+	if !settings.remoteDisclosure() {
+		t.Fatal("settings toggle should show the remote sentence before save")
+	}
+	about := sampleAbout()
+	if about.remoteDisclosure() {
+		t.Fatal("about follows the saved backend")
+	}
+	about.Backend = 1
+	if about.remoteDisclosure() {
+		t.Fatal("about must not follow an unsaved settings toggle")
+	}
+	about.llm.Backend = "remote"
+	if !about.remoteDisclosure() {
+		t.Fatal("saved remote backend should disclose text leaving the machine")
+	}
+	if asrNeedsReload(config.ASR{Language: "auto"}, config.ASR{Language: "zh"}) != true {
+		t.Fatal("language change should reload")
+	}
+	if asrNeedsReload(config.ASR{Language: "zh", VAD: "mid"}, config.ASR{Language: "zh", VAD: "high"}) {
+		t.Fatal("sensitivity is applied on the chunker, not by reloading the model")
+	}
+}
+
+func TestLineMetaAndStamp(t *testing.T) {
 	if got := stamp(3820 * time.Millisecond); got != "00:03.8" {
 		t.Fatalf("stamp %q", got)
+	}
+	if got := lineMeta(pipeline.Line{Language: "zh", Start: time.Second}); got != "中文 · 00:01.0" {
+		t.Fatalf("meta %q", got)
 	}
 }
 

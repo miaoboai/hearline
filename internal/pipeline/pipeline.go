@@ -19,6 +19,8 @@ type Line struct {
 	Partial  bool
 	Start    time.Duration
 	End      time.Duration
+	// Slow means this sentence took long enough that the live caption lags.
+	Slow bool
 }
 
 // String is a stable text form for logs and --out files.
@@ -50,10 +52,13 @@ type Options struct {
 	MinSpeech    time.Duration
 	PartialEvery time.Duration
 	Threshold    float32
+	// Sensitivity is high, mid, or low. It applies when Threshold is 0
+	// and the chunker tracks the quiet level itself.
+	Sensitivity string
 }
 
 func (o Options) chunker() *audio.Chunker {
-	c := audio.Chunker{SampleRate: audio.SampleRate, Threshold: o.Threshold}
+	c := audio.Chunker{SampleRate: audio.SampleRate, Threshold: o.Threshold, Sensitivity: o.Sensitivity}
 	if o.MaxChunk > 0 {
 		c.MaxSpeech = int(o.MaxChunk * audio.SampleRate / time.Second)
 	}
@@ -145,16 +150,21 @@ func Run(ctx context.Context, rec asr.Recognizer, in <-chan []float32, opt Optio
 }
 
 func decode(rec asr.Recognizer, seg audio.Segment) (Line, error) {
+	start := time.Now()
 	res, err := rec.DecodePCM(seg.Samples, audio.SampleRate)
 	if err != nil {
 		return Line{}, err
 	}
+	elapsed := time.Since(start)
+	audioDur := time.Duration(len(seg.Samples)) * time.Second / audio.SampleRate
+	slow := !seg.Partial && audioDur > 0 && elapsed > 2*time.Second && elapsed > audioDur*3/2
 	return Line{
 		Text:     res.Text,
 		Language: res.Language,
 		Partial:  seg.Partial,
 		Start:    sampleTime(seg.Start),
 		End:      sampleTime(seg.End),
+		Slow:     slow,
 	}, nil
 }
 

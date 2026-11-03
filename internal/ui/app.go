@@ -15,6 +15,9 @@ import (
 
 	"github.com/miaoboai/hearline/internal/asr"
 	"github.com/miaoboai/hearline/internal/audio"
+	"github.com/miaoboai/hearline/internal/config"
+	"github.com/miaoboai/hearline/internal/fault"
+	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
@@ -26,6 +29,9 @@ type Options struct {
 	Capture        func(context.Context, string) (<-chan []float32, error)
 	LLMStatus      string
 	Chunk          pipeline.Options
+	Config         config.Config
+	Version        string
+	SaveConfig     func(config.Config) error
 }
 
 // Model is the subtitle window state. The view reads it on the UI thread.
@@ -41,8 +47,33 @@ type Model struct {
 	Lines      []pipeline.Line
 	Listening  bool
 	Ready      bool
+	Screen     int
+	Fault      string
+	Focus      string
+	Version    string
+	ExportPath string
+	ExportNote string
+	SaveNote   string
+	LangLabel  string
+	VADLabel   string
+	ModelDir   string
+	Backend    int
+	BaseURL    string
+	ModelName  string
+	APIKey     string
+	Doc        notes.Doc
+	NotesBusy  bool
+	NotesErr   string
 	// follow is the line count last scrolled into view.
-	follow int
+	follow    int
+	notesGen  int
+	wantNotes bool
+	reloadASR bool
+	loadGen   atomic.Uint64
+
+	llm  config.LLM
+	cfg  config.Config
+	save func(config.Config) error
 
 	load    func() (asr.Recognizer, error)
 	capture func(context.Context, string) (<-chan []float32, error)
@@ -57,12 +88,16 @@ type Model struct {
 // Run opens the window and blocks until it closes.
 func Run(opt Options) error {
 	m := &Model{
-		load:      opt.LoadRecognizer,
-		capture:   opt.Capture,
-		chunk:     opt.Chunk,
-		LLMStatus: opt.LLMStatus,
-		Status:    "正在加载识别器…",
+		load:       opt.LoadRecognizer,
+		capture:    opt.Capture,
+		chunk:      opt.Chunk,
+		LLMStatus:  opt.LLMStatus,
+		Status:     "正在准备",
+		Version:    opt.Version,
+		ExportPath: defaultExportPath(),
+		save:       opt.SaveConfig,
 	}
+	m.loadDraft(opt.Config)
 	if m.load == nil || m.capture == nil {
 		return fmt.Errorf("ui: missing recognizer or capture")
 	}
@@ -72,8 +107,8 @@ func Run(opt Options) error {
 			Title:           "Hearline",
 			Width:           frameWidth,
 			Height:          frameHeight,
-			MinWidth:        920,
-			MinHeight:       640,
+			MinWidth:        1040,
+			MinHeight:       700,
 			BackgroundColor: "#F3F4F6",
 			Content:         mygoui.View(m.view),
 		})
@@ -102,22 +137,61 @@ func WritePNG(m *Model, path string) error {
 }
 
 func (m *Model) loadModel() {
+	gen := m.loadGen.Add(1)
 	rec, err := m.load()
-	if m.closed.Load() {
+	stale := func() bool {
+		return m.closed.Load() || gen != m.loadGen.Load()
+	}
+	if stale() {
 		if rec != nil {
 			_ = rec.Close()
 		}
 		return
 	}
-	m.win.Update(func() {
-		if err != nil {
-			m.Status = "识别器未就绪: " + err.Error()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "recognizer: %v\n", err)
+		if rec != nil {
+			_ = rec.Close()
+		}
+		code := fault.Classify(err.Error())
+		if code == "" {
+			code = fault.ModelMissing
+		}
+		if m.win == nil {
 			return
+		}
+		m.win.Update(func() {
+			if stale() {
+				return
+			}
+			m.Ready = false
+			m.setFault(code)
+		})
+		return
+	}
+	if m.win == nil {
+		_ = rec.Close()
+		return
+	}
+	m.win.Update(func() {
+		if stale() {
+			go rec.Close()
+			return
+		}
+		if m.Listening {
+			m.reloadASR = true
+			go rec.Close()
+			return
+		}
+		if m.rec != nil {
+			old := m.rec
+			go old.Close()
 		}
 		m.rec = rec
 		m.Ready = true
 		m.Engine = rec.ID()
-		m.Status = "已加载 " + rec.ID() + " · CPU"
+		m.Status = "已准备"
+		m.clearFault(fault.ModelMissing)
 	})
 }
 
@@ -145,9 +219,15 @@ func (m *Model) refresh(list func() ([]audio.Source, error)) {
 	}
 	if err != nil {
 		m.DeviceNote = err.Error()
-	} else {
-		m.DeviceNote = ""
+		code := fault.Classify(err.Error())
+		if code == "" {
+			code = fault.CaptureUnavailable
+		}
+		m.setFault(code)
+		return
 	}
+	m.DeviceNote = ""
+	m.clearFault(fault.CaptureUnavailable)
 }
 
 func prefer(sources []audio.Source, labels []string) string {
@@ -185,9 +265,11 @@ func (m *Model) start(id string) {
 		return
 	}
 	if id == "" {
-		m.Status = "请选择音源，或填写 WAV 路径后播放"
+		m.Focus = focusWAV
 		return
 	}
+	m.clearFault(fault.DecodeBacklog)
+	m.clearFault(fault.CaptureUnavailable)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.Listening = true
@@ -206,12 +288,13 @@ func (m *Model) session(ctx context.Context, id string) {
 				if m.Status == "正在听 "+id || m.closed.Load() {
 					m.Status = "已停止"
 				}
+				m.maybeReload()
 			})
 		}
 	}()
 	ch, err := m.capture(ctx, id)
 	if err != nil {
-		m.report(err.Error())
+		m.reportCapture(err.Error())
 		return
 	}
 	err = pipeline.Run(ctx, m.rec, ch, m.chunk, func(line pipeline.Line) {
@@ -221,15 +304,32 @@ func (m *Model) session(ctx context.Context, id string) {
 		m.win.Update(func() { m.push(line) })
 	})
 	if err != nil && ctx.Err() == nil {
-		m.report(err.Error())
+		m.reportDecode(err.Error())
 	}
 }
 
-func (m *Model) report(msg string) {
+func (m *Model) reportCapture(msg string) {
 	if m.closed.Load() || m.win == nil {
 		return
 	}
-	m.win.Update(func() { m.Status = msg })
+	fmt.Fprintf(os.Stderr, "capture: %s\n", msg)
+	code := fault.Classify(msg)
+	if code == "" {
+		code = fault.CaptureUnavailable
+	}
+	m.win.Update(func() { m.setFault(code) })
+}
+
+func (m *Model) reportDecode(msg string) {
+	if m.closed.Load() || m.win == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "decode: %s\n", msg)
+	code := fault.Classify(msg)
+	if code == "" {
+		return
+	}
+	m.win.Update(func() { m.setFault(code) })
 }
 
 func (m *Model) push(line pipeline.Line) {
@@ -244,6 +344,12 @@ func (m *Model) push(line pipeline.Line) {
 	if len(m.Lines) > 200 {
 		m.Lines = m.Lines[len(m.Lines)-200:]
 	}
+	if line.Slow {
+		m.setFault(fault.DecodeBacklog)
+	}
+	if !line.Partial {
+		m.considerNotes()
+	}
 }
 
 func (m *Model) stop() {
@@ -252,23 +358,37 @@ func (m *Model) stop() {
 		m.cancel = nil
 	}
 	m.Listening = false
+	m.maybeReload()
+}
+
+func (m *Model) maybeReload() {
+	if m == nil || m.Listening || !m.reloadASR {
+		return
+	}
+	m.reloadASR = false
+	m.reload()
 }
 
 const (
-	frameWidth  = 1120
-	frameHeight = 760
+	frameWidth  = 1180
+	frameHeight = 800
 )
 
 // Snapshot is a display-only model used by the headless screenshot.
 func Snapshot(lines []pipeline.Line, source, status, llm string) *Model {
 	m := &Model{
-		Lines:     lines,
-		Status:    status,
-		LLMStatus: llm,
-		Engine:    "sensevoice-small-q8",
-		Ready:     true,
-		Selected:  source,
+		Lines:      lines,
+		Status:     status,
+		LLMStatus:  llm,
+		Engine:     "sensevoice-small-q8",
+		Ready:      true,
+		Selected:   source,
+		Version:    "0.1",
+		ExportPath: "Hearline-纪要.md",
+		LangLabel:  "自动",
+		VADLabel:   "标准",
 	}
+	m.llm = config.LLM{Backend: "local", Local: config.LocalLLM{Runtime: "llama.cpp"}}
 	if source != "" {
 		m.Labels = []string{source}
 		m.Sources = []audio.Source{{ID: "wav:", Name: source, Kind: "file"}}

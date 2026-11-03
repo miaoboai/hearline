@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miaoboai/hearline/internal/asr"
@@ -18,6 +19,7 @@ import (
 	"github.com/miaoboai/hearline/internal/config"
 	"github.com/miaoboai/hearline/internal/engine"
 	"github.com/miaoboai/hearline/internal/llm"
+	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 	"github.com/miaoboai/hearline/internal/ui"
 )
@@ -38,6 +40,8 @@ func main() {
 		code = runDemo(args)
 	case "transcribe":
 		code = runTranscribe(args)
+	case "notes":
+		code = runNotes(args)
 	case "download-model":
 		code = runDownload(args)
 	case "sources":
@@ -68,11 +72,12 @@ func usage() {
   hearline download-model        下载 SenseVoice-Small int8（约 229MB）
   hearline demo                  用官方 zh.wav / en.wav 跑通识别
   hearline transcribe --wav FILE 识别一个 WAV，把字幕打到标准输出
+  hearline notes --wav FILE      导出确定的句子；远程纪要配好后会一并写入
   hearline sources               列出 Pulse/PipeWire 音源
   hearline config init           写出 ~/.config/hearline/config.json（0600）
   hearline version
 
-无显示器时用 demo 或 transcribe。LLM 只出现在配置里，字幕环不调用它。
+无显示器时用 demo、transcribe 或 notes。听写在本机完成。纪要只有在设置里启用远程服务时才会发送已识别的文字。
 `, version)
 }
 
@@ -87,12 +92,33 @@ func runGUI(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	var mu sync.Mutex
+	current := cfg
 	err = ui.Run(ui.Options{
-		LoadRecognizer: func() (asr.Recognizer, error) { return engine.New(cfg.ASR) },
-		ListSources:    audio.List,
-		Capture:        audio.Capture,
-		LLMStatus:      llm.Describe(cfg.LLM),
-		Chunk:          chunkOpts(cfg, true),
+		LoadRecognizer: func() (asr.Recognizer, error) {
+			mu.Lock()
+			asrCfg := current.ASR
+			mu.Unlock()
+			return engine.New(asrCfg)
+		},
+		ListSources: audio.List,
+		Capture:     audio.Capture,
+		LLMStatus:   llm.Describe(cfg.LLM),
+		Chunk:       chunkOpts(cfg, true),
+		Config:      cfg,
+		Version:     version,
+		SaveConfig: func(next config.Config) error {
+			if err := next.Validate(); err != nil {
+				return err
+			}
+			if err := next.Save(current.Path); err != nil {
+				return err
+			}
+			mu.Lock()
+			current = next
+			mu.Unlock()
+			return nil
+		},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -106,6 +132,7 @@ func runDemo(args []string) int {
 	model := fs.String("model-dir", "", "模型目录；缺省则下载到用户缓存")
 	out := fs.String("out", "", "把字幕行写入这个文件")
 	shot := fs.String("screenshot", "", "把字幕界面画成 PNG")
+	notesOut := fs.String("notes", "", "把确定的句子写成 Markdown")
 	threads := fs.Int("threads", 0, "CPU 线程，0 为自动，最大 4")
 	_ = fs.Parse(args)
 
@@ -176,14 +203,25 @@ func runDemo(args []string) int {
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
 	}
+	if *notesOut != "" {
+		if err := writeNotes(*notesOut, cfg, finals(all)); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
 	if *shot != "" {
 		m := ui.Snapshot(finals(all), "官方测试 WAV（zh + en）", "SenseVoice-Small Q8 · CPU · "+fmt.Sprint(cfg.ASR.Threads())+" threads", llm.Describe(cfg.LLM))
 		m.WAV = shownPath(sensevoice.TestWav(paths.Dir, "zh.wav"))
+		m.ExportPath = "Hearline-纪要.md"
 		if err := ui.WritePNG(m, *shot); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", *shot)
+		if err := ui.WriteReviewFrames(filepath.Dir(*shot), m); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 	}
 	zh, en := "", ""
 	if len(texts) == 2 {
@@ -381,9 +419,63 @@ func load(modelDir, engineName string, threads int) (config.Config, error) {
 }
 
 func chunkOpts(cfg config.Config, live bool) pipeline.Options {
-	opt := pipeline.Options{MaxChunk: time.Duration(cfg.ASR.ChunkSec * float64(time.Second))}
+	opt := pipeline.Options{
+		MaxChunk:    time.Duration(cfg.ASR.ChunkSec * float64(time.Second)),
+		Sensitivity: cfg.ASR.VAD,
+	}
 	if live {
 		opt.PartialEvery = 2 * time.Second
 	}
 	return opt
+}
+
+func writeNotes(path string, cfg config.Config, lines []pipeline.Line) error {
+	var doc *notes.Doc
+	if ok, _ := notes.Available(cfg.LLM); ok {
+		got, err := notes.Generate(context.Background(), cfg.LLM, lines)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "纪要没有写成，字幕已导出")
+		} else {
+			doc = &got
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "纪要未启用，已导出字幕")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(notes.Markdown(doc, lines)), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s\n", path)
+	return nil
+}
+
+func runNotes(args []string) int {
+	fs := flag.NewFlagSet("notes", flag.ExitOnError)
+	wav := fs.String("wav", "", "WAV 路径")
+	model := fs.String("model-dir", "", "模型目录")
+	out := fs.String("out", "", "Markdown 路径")
+	engineName := fs.String("engine", "", "sensevoice 或 mock")
+	threads := fs.Int("threads", 0, "CPU 线程，0 为自动，最大 4")
+	_ = fs.Parse(args)
+	if *wav == "" || *out == "" {
+		fmt.Fprintln(os.Stderr, "notes 需要 --wav 和 --out")
+		return 2
+	}
+	cfg, err := load(*model, *engineName, *threads)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	lines, _, err := transcribeFile(cfg, *wav)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := writeNotes(*out, cfg, notes.Finals(lines)); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
 }
