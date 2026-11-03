@@ -19,24 +19,28 @@ func paintPrimary(c *g.Context, key, label string, disabled bool, look btnLook) 
 	if look == lookDisabled {
 		disabled = true
 	}
+	// A disabled ButtonBase is painted at half opacity, which washes the
+	// token. Draw the fill on a plain row so the color stays #F0B3A3 and
+	// the control does not take a click.
+	if disabled {
+		g.Row(c.Key(key)).MinHeight(PrimaryMinH).Padding(8, PrimaryPadX).Radius(RadiusCtrl).
+			Shrink(0).AlignItems(g.Center).Justify(g.Center).Background(primaryFill(look, true)).
+			Children(func() {
+				text(c, label, TypePrimaryBtn, colorOnAccentDim).SingleLine()
+			})
+		return false
+	}
 	btn := g.ButtonBase(c.Key(key)).MinHeight(PrimaryMinH).Padding(8, PrimaryPadX).Radius(RadiusCtrl).
 		Shrink(0).AlignItems(g.Center).Justify(g.Center).Cursor(g.CursorPointer).
-		Background(primaryFill(look, disabled))
-	if disabled {
-		btn = btn.Disabled(true)
-	}
+		Background(primaryFill(look, false))
 	btn.FocusRing(false)
 	if look == lookFocus || (look == lookAuto && btn.FocusVisible()) {
 		btn.DrawOver(func(p *g.Painter, r g.Rect) {
 			p.FocusRing(r, [4]float32{RadiusCtrl, RadiusCtrl, RadiusCtrl, RadiusCtrl})
 		})
 	}
-	ink := colorOnAccent
-	if disabled {
-		ink = colorOnAccentDim
-	}
 	btn.Children(func() {
-		text(c, label, TypePrimaryBtn, ink).SingleLine()
+		text(c, label, TypePrimaryBtn, colorOnAccent).SingleLine()
 	})
 	return btn.Clicked()
 }
@@ -76,24 +80,25 @@ func primaryFillLive(btn g.Element, disabled bool) g.Color {
 }
 
 func paintPrimaryLive(c *g.Context, key, label string, disabled bool) bool {
+	if disabled {
+		g.Row(c.Key(key)).MinHeight(PrimaryMinH).Padding(8, PrimaryPadX).Radius(RadiusCtrl).
+			Shrink(0).AlignItems(g.Center).Justify(g.Center).Background(colorAccentDisabled).
+			Children(func() {
+				text(c, label, TypePrimaryBtn, colorOnAccentDim).SingleLine()
+			})
+		return false
+	}
 	btn := g.ButtonBase(c.Key(key)).MinHeight(PrimaryMinH).Padding(8, PrimaryPadX).Radius(RadiusCtrl).
 		Shrink(0).AlignItems(g.Center).Justify(g.Center).Cursor(g.CursorPointer)
-	if disabled {
-		btn = btn.Disabled(true)
-	}
-	btn.Background(primaryFillLive(btn, disabled))
+	btn.Background(primaryFillLive(btn, false))
 	btn.FocusRing(false)
 	if btn.FocusVisible() {
 		btn.DrawOver(func(p *g.Painter, r g.Rect) {
 			p.FocusRing(r, [4]float32{RadiusCtrl, RadiusCtrl, RadiusCtrl, RadiusCtrl})
 		})
 	}
-	ink := colorOnAccent
-	if disabled {
-		ink = colorOnAccentDim
-	}
 	btn.Children(func() {
-		text(c, label, TypePrimaryBtn, ink).SingleLine()
+		text(c, label, TypePrimaryBtn, colorOnAccent).SingleLine()
 	})
 	return btn.Clicked()
 }

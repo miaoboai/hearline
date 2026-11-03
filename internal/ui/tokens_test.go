@@ -9,11 +9,23 @@ import (
 )
 
 func TestTokensAreCode(t *testing.T) {
-	if HexAccent != "#E8552B" {
-		t.Fatalf("accent token %s", HexAccent)
+	if HexAccent != "#C2410C" || HexAccentHover != "#A83410" || HexAccentPressed != "#8F2C0D" {
+		t.Fatalf("accent tokens %s %s %s", HexAccent, HexAccentHover, HexAccentPressed)
 	}
-	if colorAccent != g.Hex(HexAccent) {
-		t.Fatal("colorAccent is not HexAccent")
+	if HexQuiet != "#667085" {
+		t.Fatalf("quiet token %s", HexQuiet)
+	}
+	if HexOnAccent != "#FFFFFF" {
+		t.Fatalf("onAccent token %s", HexOnAccent)
+	}
+	if colorAccent != g.Hex(HexAccent) || colorQuiet != g.Hex(HexQuiet) {
+		t.Fatal("color values diverged from hex tokens")
+	}
+	if contrastHex(HexQuiet, "#FFFFFF") < 4.5 {
+		t.Fatalf("quiet on white %.2f", contrastHex(HexQuiet, "#FFFFFF"))
+	}
+	if contrastHex(HexOnAccent, HexAccent) < 4.5 {
+		t.Fatalf("white on accent %.2f", contrastHex(HexOnAccent, HexAccent))
 	}
 	if TypeCurrent.Size != 28 || TypeCurrent.Weight != 600 || TypeCurrent.Line != 36 {
 		t.Fatalf("type.current %+v", TypeCurrent)
@@ -27,7 +39,7 @@ func TestTokensAreCode(t *testing.T) {
 	if Space1 != 8 || Space2 != 16 || PadWindow != 16 || PadStageX != 16 || PadStageY != 12 {
 		t.Fatal("spacing tokens drifted")
 	}
-	if HexQuiet != "#8B909A" || HexLine != "#E8EAEE" || HexFocus != "#2F6FED" {
+	if HexLine != "#E8EAEE" || HexFocus != "#2F6FED" || HexHist != "#A8ADB8" {
 		t.Fatal("color tokens drifted")
 	}
 	theme := hearlineTheme()
@@ -55,7 +67,8 @@ func TestContrastFloors(t *testing.T) {
 		{"onDark/stage", HexOnDark, HexStage, 12},
 		{"hist/stage", HexHist, HexStage, 4.5},
 		{"partial/stage", HexPartial, HexStage, 3},
-		{"quiet/stage", HexQuiet, HexStage, 4.5},
+		{"quiet/white", HexQuiet, "#FFFFFF", 4.5},
+		{"white/accent", HexOnAccent, HexAccent, 4.5},
 	}
 	for _, tc := range cases {
 		got := contrastHex(tc.fg, tc.bg)

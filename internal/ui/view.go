@@ -255,7 +255,7 @@ func (m *Model) emptyStage(c *g.Context) {
 	}
 	g.Column(c).Grow(1).Justify(g.Center).AlignItems(g.Center).Gap(GapBlock).Children(func() {
 		if hint != "" {
-			col := colorQuiet
+			col := colorHist
 			face := TypeEmpty
 			if m.faultText() != "" {
 				col = colorOnDark
@@ -329,7 +329,7 @@ func (m *Model) history(c *g.Context, lines []pipeline.Line) {
 func (m *Model) currentLine(c *g.Context, line pipeline.Line) {
 	g.Column(c).Gap(Space1).Shrink(0).Children(func() {
 		if label := langLabel(line.Language); label != "" {
-			text(c, label, TypeCurrentMeta, colorQuiet)
+			text(c, label, TypeCurrentMeta, colorHist)
 		}
 		face := TypeCurrent
 		if len([]rune(line.Text)) > 42 {

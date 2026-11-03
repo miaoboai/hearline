@@ -330,8 +330,8 @@ func hasNear(img *image.RGBA, r, gch, b, tol int) bool {
 		return false
 	}
 	bounds := img.Bounds()
-	for y := bounds.Min.Y; y < bounds.Max.Y; y += 2 {
-		for x := bounds.Min.X; x < bounds.Max.X; x += 2 {
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			rr, gg, bb, _ := img.At(x, y).RGBA()
 			if near8(int(rr>>8), r, tol) && near8(int(gg>>8), gch, tol) && near8(int(bb>>8), b, tol) {
 				return true
