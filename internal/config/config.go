@@ -30,6 +30,8 @@ type ASR struct {
 	NumThreads int     `json:"num_threads"`
 	Provider   string  `json:"provider"`
 	ChunkSec   float64 `json:"chunk_seconds"`
+	// VAD is high, mid, or low. Empty means mid.
+	VAD string `json:"vad,omitempty"`
 }
 
 // LLM chooses where translation and notes will run later.

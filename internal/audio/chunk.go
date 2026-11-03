@@ -1,5 +1,7 @@
 package audio
 
+import "strings"
+
 // Segment is one utterance, or a partial look at the current utterance.
 type Segment struct {
 	Samples []float32
@@ -11,9 +13,15 @@ type Segment struct {
 // Chunker splits a 16 kHz mono stream on silence, and cuts a long utterance
 // so a non-streaming model such as SenseVoice can emit subtitles without
 // holding the whole session.
+//
+// Adaptive tracks the quiet level for a short moment, then opens speech
+// above that floor. A fixed Threshold skips the tracker. Sensitivity is
+// "high", "mid", or "low" and only applies when Adaptive is on.
 type Chunker struct {
 	SampleRate   int
 	Threshold    float32
+	Adaptive     bool
+	Sensitivity  string
 	MinSpeech    int
 	MaxSpeech    int
 	Silence      int
@@ -27,6 +35,10 @@ type Chunker struct {
 	silenceRun  int
 	lastPartial int
 	frame       int
+	floor       float32
+	ratio       float32
+	noise       float32
+	calib       int
 }
 
 // NewChunker fills zero fields with defaults for 16 kHz speech.
@@ -35,7 +47,12 @@ func NewChunker(c Chunker) *Chunker {
 		c.SampleRate = SampleRate
 	}
 	if c.Threshold <= 0 {
-		c.Threshold = 0.01
+		c.Adaptive = true
+	}
+	if c.Adaptive {
+		c.floor, c.ratio = sensitivity(c.Sensitivity)
+		c.noise = c.floor / c.ratio
+		c.calib = c.SampleRate / 8
 	}
 	if c.MinSpeech <= 0 {
 		c.MinSpeech = c.SampleRate * 3 / 10
@@ -87,7 +104,15 @@ func (c *Chunker) Flush() []Segment {
 
 func (c *Chunker) consume(f []float32) []Segment {
 	c.abs += len(f)
-	loud := RMS(f) >= c.Threshold
+	rms := RMS(f)
+	loud := rms >= c.gate()
+	if c.Adaptive && c.calib > 0 {
+		c.calib -= len(f)
+		c.track(rms, true)
+		loud = false
+	} else if c.Adaptive && !loud {
+		c.track(rms, false)
+	}
 	if !c.inSpeech {
 		if !loud {
 			return nil
@@ -117,6 +142,43 @@ func (c *Chunker) consume(f []float32) []Segment {
 		return []Segment{c.peek()}
 	}
 	return nil
+}
+
+func sensitivity(name string) (floor, ratio float32) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "high", "灵敏":
+		return 0.005, 2.4
+	case "low", "稳妥":
+		return 0.012, 5
+	default:
+		return 0.008, 3.2
+	}
+}
+
+func (c *Chunker) gate() float32 {
+	if !c.Adaptive {
+		return c.Threshold
+	}
+	g := c.noise * c.ratio
+	if g < c.floor {
+		g = c.floor
+	}
+	if cap := c.floor * 6; g > cap {
+		g = cap
+	}
+	return g
+}
+
+func (c *Chunker) track(rms float32, fast bool) {
+	if fast {
+		c.noise = c.noise*0.4 + rms*0.6
+		return
+	}
+	if rms < c.noise {
+		c.noise = c.noise*0.6 + rms*0.4
+		return
+	}
+	c.noise = c.noise*0.99 + rms*0.01
 }
 
 func (c *Chunker) peek() Segment {

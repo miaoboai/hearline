@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/miaoboai/hearline/internal/config"
+	"github.com/miaoboai/hearline/internal/resident"
 )
 
 // Describe is a one-line status for the UI. It never includes the API key.
@@ -34,19 +35,23 @@ func Describe(c config.LLM) string {
 	}
 }
 
-// Complete runs the configured backend. Remote failures can fall back to the
-// local runner, which in v0.1 returns a clear "not linked" error.
+// Complete runs the configured backend. A remote failure falls back to the
+// local runner only when that runner is actually linked and can be loaded
+// without keeping the recognizer resident too.
 func Complete(ctx context.Context, c config.LLM, prompt string) (string, error) {
 	if err := (config.Config{LLM: c}).Validate(); err != nil && c.Backend == "remote" {
-		return "", err
+		return "", scrub(err, c.Remote.APIKey)
 	}
 	if c.Backend == "remote" {
 		text, err := completeRemote(ctx, c.Remote, prompt)
-		if err != nil && c.FallbackToLocal {
-			_, localErr := completeLocal(c.Local, prompt)
-			return "", fmt.Errorf("远程 LLM 失败: %v; 本地回退: %w", err, localErr)
+		if err != nil && c.FallbackToLocal && resident.LocalRunnable() {
+			text, localErr := completeLocal(c.Local, prompt)
+			if localErr != nil {
+				return "", scrub(fmt.Errorf("远程 LLM 失败: %v; 本地回退: %w", err, localErr), c.Remote.APIKey)
+			}
+			return text, nil
 		}
-		return text, err
+		return text, scrub(err, c.Remote.APIKey)
 	}
 	return completeLocal(c.Local, prompt)
 }
@@ -55,6 +60,17 @@ func completeLocal(c config.LocalLLM, prompt string) (string, error) {
 	if strings.TrimSpace(prompt) == "" {
 		return "", fmt.Errorf("empty prompt")
 	}
+	if !resident.LocalRunnable() {
+		return "", fmt.Errorf("%s", notLinked(c))
+	}
+	if err := resident.HoldLocal(); err != nil {
+		return "", err
+	}
+	defer resident.ReleaseLocal()
+	return "", fmt.Errorf("%s", notLinked(c))
+}
+
+func notLinked(c config.LocalLLM) string {
 	path := c.ModelPath
 	if path == "" {
 		path = "(未设置 llm.local.model_path)"
@@ -63,7 +79,18 @@ func completeLocal(c config.LocalLLM, prompt string) (string, error) {
 	if runtime == "" {
 		runtime = "llama.cpp"
 	}
-	return "", fmt.Errorf("本地 LLM（%s）尚未接入 v0.1，模型路径 %s 只保存在配置里", runtime, path)
+	return fmt.Sprintf("本地 LLM（%s）尚未接入 v0.1，模型路径 %s 只保存在配置里", runtime, path)
+}
+
+func scrub(err error, key string) error {
+	if err == nil || strings.TrimSpace(key) == "" {
+		return err
+	}
+	msg := strings.ReplaceAll(err.Error(), key, "***")
+	if msg == err.Error() {
+		return err
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 type chatRequest struct {
@@ -115,7 +142,7 @@ func completeRemote(ctx context.Context, c config.RemoteLLM, prompt string) (str
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("remote LLM HTTP %s: %s", resp.Status, truncate(string(raw), 300))
+		return "", scrub(fmt.Errorf("remote LLM HTTP %s: %s", resp.Status, truncate(string(raw), 300)), c.APIKey)
 	}
 	var parsed chatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {

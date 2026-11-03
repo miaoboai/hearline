@@ -68,7 +68,10 @@ func TestRemoteFallsBackToLocalError(t *testing.T) {
 	cfg.Remote.BaseURL = srv.URL
 	cfg.Remote.Model = "m"
 	_, err := Complete(context.Background(), cfg, "hello")
-	if err == nil || !strings.Contains(err.Error(), "本地回退") {
-		t.Fatalf("err = %v", err)
+	if err == nil {
+		t.Fatal("expected remote error")
+	}
+	if strings.Contains(err.Error(), "本地回退") || strings.Contains(err.Error(), "尚未接入") {
+		t.Fatalf("fell back to a local runner that is not linked: %v", err)
 	}
 }

@@ -68,6 +68,47 @@ func TestChunkerMaxUtterance(t *testing.T) {
 	}
 }
 
+func TestAdaptiveQuietSpeechAndSteadyHiss(t *testing.T) {
+	c := NewChunker(Chunker{SampleRate: SampleRate, Sensitivity: "mid"})
+	if !c.Adaptive {
+		t.Fatal("a zero threshold should track the quiet level")
+	}
+	silence := make([]float32, SampleRate/2)
+	for i := range silence {
+		silence[i] = 0.001
+	}
+	speech := make([]float32, SampleRate/2)
+	for i := range speech {
+		speech[i] = 0.2
+	}
+	var buf []float32
+	buf = append(buf, silence...)
+	buf = append(buf, speech...)
+	buf = append(buf, silence...)
+	segs := append(c.Push(buf), c.Flush()...)
+	n := 0
+	for _, s := range segs {
+		if !s.Partial {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("quiet-then-speech finals = %d, want 1", n)
+	}
+
+	hiss := NewChunker(Chunker{SampleRate: SampleRate, Sensitivity: "mid"})
+	noise := make([]float32, SampleRate*2)
+	for i := range noise {
+		noise[i] = 0.02
+	}
+	segs = append(hiss.Push(noise), hiss.Flush()...)
+	for _, s := range segs {
+		if !s.Partial && len(s.Samples) > 0 {
+			t.Fatalf("steady hiss produced %d samples", len(s.Samples))
+		}
+	}
+}
+
 func TestResampleAndWAVRoundTrip(t *testing.T) {
 	in := []float32{0, 0.5, -0.5, 0.25}
 	same := Resample(in, 16000, 16000)

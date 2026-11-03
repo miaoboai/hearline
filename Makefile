@@ -26,7 +26,7 @@ download: build
 	./$(BIN) download-model --dir $(CURDIR)/$(MODEL_DIR)
 
 demo: build
-	./$(BIN) demo --model-dir $(CURDIR)/$(MODEL_DIR) --out /tmp/hearline-subs.txt --screenshot /tmp/hearline-subs.png
+	./$(BIN) demo --model-dir $(CURDIR)/$(MODEL_DIR) --out /tmp/hearline-subs.txt --screenshot /tmp/hearline-subs.png --notes /tmp/hearline-notes.md
 
 sources: build
 	./$(BIN) sources

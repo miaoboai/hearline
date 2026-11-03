@@ -1,20 +1,31 @@
 package ui
 
 import (
+	"context"
+	"image"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	g "github.com/egoist/mygo/ui"
 
+	"github.com/miaoboai/hearline/internal/config"
+	"github.com/miaoboai/hearline/internal/fault"
+	"github.com/miaoboai/hearline/internal/notes"
 	"github.com/miaoboai/hearline/internal/pipeline"
 )
 
 func TestRenderSnapshot(t *testing.T) {
 	m := Snapshot([]pipeline.Line{
-		{Text: "开饭时间早上9点至下午5点。", Language: "zh", Start: 720 * time.Millisecond, End: 5200 * time.Millisecond},
-		{Text: "The tribal chieftain called for the boy.", Language: "en", Start: 1100 * time.Millisecond, End: 3460 * time.Millisecond},
-		{Text: "And presented him with 50 pieces of gold.", Language: "en", Start: 3820 * time.Millisecond, End: 7100 * time.Millisecond},
-	}, "官方测试 WAV（zh + en）", "SenseVoice-Small Q8 · CPU · 4 threads", "本地优先 · llama.cpp · 未设置模型路径（字幕环不调用）")
+		{Text: "开饭时间早上9点至下午5点。", Language: "zh", Start: 720 * time.Millisecond},
+		{Text: "还在听", Partial: true},
+		{Text: "And presented him with 50 pieces of gold.", Language: "en", Start: 3820 * time.Millisecond},
+	}, "官方测试 WAV（zh + en）", "已准备", "")
+	if len(m.finals()) != 2 {
+		t.Fatalf("finals %d", len(m.finals()))
+	}
 	img := g.Render(m.view, frameWidth, frameHeight, 1)
 	if img == nil {
 		t.Fatal("nil image")
@@ -48,49 +59,349 @@ func TestRenderSnapshot(t *testing.T) {
 	}
 }
 
-func TestRenderHistoryScroll(t *testing.T) {
-	lines := make([]pipeline.Line, 8)
-	for i := range lines {
-		lines[i] = pipeline.Line{
-			Text:     "字幕行",
-			Language: "zh",
-			Start:    time.Duration(i) * time.Second,
-			End:      time.Duration(i+1) * time.Second,
+func TestRenderStates(t *testing.T) {
+	for _, m := range []*Model{sampleEmpty(), sampleListening(), sampleError(), sampleSettings(), sampleNotes()} {
+		if g.Render(m.view, frameWidth, frameHeight, 1) == nil {
+			t.Fatal("nil frame")
 		}
 	}
-	m := Snapshot(lines, "系统声", "已加载 sensevoice-small-q8 · CPU", "远程 OpenAI 兼容 · gpt-4.1-mini · https://example · key 已保存（字幕环不调用）")
-	m.Listening = true
-	img := g.Render(m.view, frameWidth, frameHeight, 1)
-	if img == nil {
-		t.Fatal("nil image")
+	if sampleError().Fault != fault.ModelMissing {
+		t.Fatal("error frame lost its code")
+	}
+	ok, reason := notes.Available(sampleListen().llm)
+	if ok || !strings.Contains(reason, "尚未接入") {
+		t.Fatalf("default notes ok=%v reason=%q", ok, reason)
+	}
+	if sampleListening().clock() != "00:12" {
+		t.Fatalf("clock %s", sampleListening().clock())
 	}
 }
 
-func TestStatusChips(t *testing.T) {
-	if got := engineChip("sensevoice-small-q8", ""); got != "SenseVoice · Q8" {
-		t.Fatalf("engine chip %q", got)
+func TestDumpFrames(t *testing.T) {
+	dir := t.TempDir()
+	if env := os.Getenv("HEARLINE_FRAMES"); env != "" {
+		dir = env
 	}
-	if got := cpuChip("SenseVoice-Small Q8 · CPU · 4 threads"); got != "CPU · 4 线程" {
-		t.Fatalf("cpu chip %q", got)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if got := llmChip("本地优先 · llama.cpp · 未设置模型路径（字幕环不调用）"); got != "LLM · 本地" {
-		t.Fatalf("local llm chip %q", got)
+	if err := WriteReviewFrames(dir, nil); err != nil {
+		t.Fatal(err)
 	}
-	if got := llmChip("远程 OpenAI 兼容 · gpt · https://example · key 已保存（字幕环不调用）"); got != "LLM · 远程" {
-		t.Fatalf("remote llm chip %q", got)
+	partial := sampleListen()
+	partial.Lines = append(partial.Lines, pipeline.Line{Text: "还在听这一句", Partial: true})
+	if err := WritePNG(partial, filepath.Join(dir, "hearline-partial.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := footerStatus(&Model{Status: "SenseVoice-Small Q8 · CPU · 4 threads"}); got != "可以开始听" {
-		t.Fatalf("footer %q", got)
+	remote := sampleSettings()
+	remote.Backend = 1
+	remote.BaseURL = "https://example.invalid/v1"
+	remote.ModelName = "notes"
+	remote.llm.Backend = "remote"
+	remote.llm.Remote = config.RemoteLLM{BaseURL: remote.BaseURL, Model: remote.ModelName}
+	if err := WritePNG(remote, filepath.Join(dir, "hearline-settings-remote.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := deviceNote("pulse: connection refused"); got != "没有连上系统声，WAV 仍然可以播放" {
-		t.Fatalf("device note %q", got)
+	about := sampleSettings()
+	about.Panel = panelListen
+	about.llm.Backend = "remote"
+	about.llm.Remote = config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}
+	if err := WritePNG(about, filepath.Join(dir, "hearline-about-remote.png")); err != nil {
+		t.Fatal(err)
 	}
-	if got := langLabel("zh"); got != "中文" {
-		t.Fatalf("lang %q", got)
+	miss := sampleEmpty()
+	miss.Fault = fault.CaptureUnavailable
+	if err := WritePNG(miss, filepath.Join(dir, "hearline-capture.png")); err != nil {
+		t.Fatal(err)
 	}
+	t.Log(dir)
+}
+
+func TestPrivacyFollowsBackend(t *testing.T) {
+	if privacyAudio != "听写在本机完成，音频不会上传。" || privacyRemote != "若纪要选用远程服务，只会发送已识别的文字，不会发送音频。" || privacyOff != "当前纪要未启用远程" {
+		t.Fatal("privacy copy drifted")
+	}
+	settings := sampleSettings()
+	if settings.remoteDisclosure() {
+		t.Fatal("local settings should mute the remote line")
+	}
+	settings.Backend = 1
+	if !settings.remoteDisclosure() {
+		t.Fatal("settings toggle should show the remote sentence before save")
+	}
+	about := sampleSettings()
+	about.Panel = panelListen
+	if about.remoteDisclosure() {
+		t.Fatal("listen surface follows the saved backend")
+	}
+	about.Backend = 1
+	if about.remoteDisclosure() {
+		t.Fatal("listen surface must not follow an unsaved settings toggle")
+	}
+	about.Panel = panelSettings
+	if !about.remoteDisclosure() {
+		t.Fatal("settings toggle should show the remote sentence before save")
+	}
+	about.Panel = panelListen
+	about.llm.Backend = "remote"
+	if !about.remoteDisclosure() {
+		t.Fatal("saved remote backend should disclose text leaving the machine")
+	}
+	if asrNeedsReload(config.ASR{Language: "auto"}, config.ASR{Language: "zh"}) != true {
+		t.Fatal("language change should reload")
+	}
+	if asrNeedsReload(config.ASR{Language: "zh", VAD: "mid"}, config.ASR{Language: "zh", VAD: "high"}) {
+		t.Fatal("sensitivity is applied on the chunker, not by reloading the model")
+	}
+}
+
+func TestDownloadModelIsWired(t *testing.T) {
+	if fault.Action(fault.ModelMissing) != "下载模型" {
+		t.Fatal("model missing action drifted")
+	}
+	m := sampleError()
+	called := make(chan struct{}, 1)
+	m.download = func(context.Context) error {
+		called <- struct{}{}
+		return context.Canceled
+	}
+	tt := g.NewTester(m.view, frameWidth, frameHeight)
+	if err := tt.Click("下载模型"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.Downloading {
+		t.Fatal("下载模型 did not start")
+	}
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("下载模型 did not call DownloadModel")
+	}
+	plain := sampleError()
+	tt = g.NewTester(plain.view, frameWidth, frameHeight)
+	if err := tt.Click("下载模型"); err != nil {
+		t.Fatal(err)
+	}
+	if plain.Panel != panelSettings || plain.SaveNote != modelCacheNote {
+		t.Fatalf("panel %d note %q", plain.Panel, plain.SaveNote)
+	}
+	if !tt.HasText("模型路径") || !tt.HasText(modelCacheNote) {
+		t.Fatal("下载模型 did not open the model field")
+	}
+	tt.Type("models/sensevoice")
+	if plain.ModelDir != "models/sensevoice" {
+		t.Fatalf("model field did not take focus, dir %q", plain.ModelDir)
+	}
+}
+
+func TestFootnoteQuietOnFault(t *testing.T) {
+	m := sampleError()
+	if got := m.footnote(); got != "" {
+		t.Fatalf("error footnote %q", got)
+	}
+	cold := sampleEmpty()
+	cold.Ready = false
+	if got := cold.footnote(); got != "正在加载识别器" {
+		t.Fatalf("cold footnote %q", got)
+	}
+}
+
+func TestLineMetaAndStamp(t *testing.T) {
 	if got := stamp(3820 * time.Millisecond); got != "00:03.8" {
 		t.Fatalf("stamp %q", got)
 	}
+	if got := lineMeta(pipeline.Line{Language: "zh", Start: time.Second}); got != "中文 · 00:01.0" {
+		t.Fatalf("meta %q", got)
+	}
+}
+
+func TestChromeLayout(t *testing.T) {
+	idle := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	if !exactText(idle, "开始听") || exactText(idle, "停止") || exactText(idle, "刷新") || exactText(idle, "更多") || exactText(idle, "纪要") {
+		t.Fatalf("idle texts %v", idle.Texts())
+	}
+	if !idle.HasText(emptyHint) || idle.HasText("安静的环境") {
+		t.Fatal("idle empty hint missing")
+	}
+	listen := g.NewTester(sampleListening().view, frameWidth, frameHeight)
+	if !exactText(listen, "停止") || exactText(listen, "开始听") || exactText(listen, "刷新") || exactText(listen, "更多") || listen.HasText("音源") {
+		t.Fatalf("listening texts %v", listen.Texts())
+	}
+	if !listen.HasText("正在听 · 00:12") || !listen.HasText("还在听这一句") {
+		t.Fatalf("listening stage %v", listen.Texts())
+	}
+	settings := g.NewTester(sampleSettings().view, frameWidth, frameHeight)
+	if settings.HasText("模型路径") || settings.HasText("线程") || exactText(settings, "本机") || exactText(settings, "远程") {
+		t.Fatalf("settings leaked advanced or a local tier %v", settings.Texts())
+	}
+	if !settings.HasText(privacyAudio) || !settings.HasText(privacyOff) || !settings.HasText("Hearline 0.1") {
+		t.Fatalf("about %v", settings.Texts())
+	}
+	if r, ok := settings.Find("Hearline 0.1"); !ok || r.Y > float32(frameHeight)-80 {
+		t.Fatalf("about sits off the first screen: %+v", r)
+	}
+	open := sampleSettingsAdvanced()
+	advanced := g.NewTester(open.view, frameWidth, frameHeight)
+	if !advanced.HasText("模型路径") || !advanced.HasText("线程") {
+		t.Fatal("advanced did not reveal model path and threads")
+	}
+	remote := sampleListen()
+	remote.llm.Backend = "remote"
+	remote.llm.Remote = config.RemoteLLM{BaseURL: "https://example.invalid/v1", Model: "notes"}
+	withNotes := g.NewTester(remote.view, frameWidth, frameHeight)
+	if !exactText(withNotes, "纪要") {
+		t.Fatal("configured remote should show a 纪要 link")
+	}
+	narrow := g.Render(sampleEmpty().view, 720, frameHeight, 1)
+	if narrow == nil || narrow.Bounds().Dx() != 720 {
+		t.Fatal("narrow frame missing")
+	}
+}
+
+func TestIdleSharesListeningBottom(t *testing.T) {
+	idle := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	listen := g.NewTester(sampleListening().view, frameWidth, frameHeight)
+	start, ok := idle.Find("开始听")
+	if !ok {
+		t.Fatal("idle primary missing")
+	}
+	stop, ok := listen.Find("停止")
+	if !ok {
+		t.Fatal("listening primary missing")
+	}
+	hint, ok := idle.Find(emptyHint)
+	if !ok {
+		t.Fatal("idle hint missing")
+	}
+	startBottom := start.Y + start.H
+	stopBottom := stop.Y + stop.H
+	if abs(startBottom-stopBottom) > 8 {
+		t.Fatalf("idle primary bottom %.1f, listening primary bottom %.1f", startBottom, stopBottom)
+	}
+	if hint.Y+hint.H > start.Y+2 {
+		t.Fatalf("hint should sit above the primary, hint %.1f button %.1f", hint.Y, start.Y)
+	}
+	if hint.Y < float32(frameHeight)/2 {
+		t.Fatalf("idle hint is still in the upper half, y %.1f", hint.Y)
+	}
+	if hint.X > 80 {
+		t.Fatalf("idle hint is not on the listening left edge, x %.1f", hint.X)
+	}
+}
+
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func TestStageIsFlush(t *testing.T) {
+	img := g.Render(sampleEmpty().view, frameWidth, frameHeight, 1)
+	if img == nil {
+		t.Fatal("nil")
+	}
+	stage := g.Hex(HexStage)
+	ground := g.Hex(HexGround)
+	// Header band stays on the ground. The stage meets the window edges
+	// under it, with square corners, so it is a surface rather than a card.
+	if !pixelNear(img, 4, 8, ground) {
+		t.Fatal("header band left the ground")
+	}
+	if !pixelNear(img, 2, int(HeaderH)+4, stage) || !pixelNear(img, frameWidth-3, frameHeight-3, stage) || !pixelNear(img, 2, frameHeight-3, stage) {
+		t.Fatal("stage is inset from the window edge")
+	}
+	if RadiusStage != 0 {
+		t.Fatalf("stage radius %v", RadiusStage)
+	}
+}
+
+func pixelNear(img *image.RGBA, x, y int, want g.Color) bool {
+	rr, gg, bb, _ := img.At(x, y).RGBA()
+	return near8(int(rr>>8), int(want.R), 8) && near8(int(gg>>8), int(want.G), 8) && near8(int(bb>>8), int(want.B), 8)
+}
+
+func TestPrimaryPaintsAccent(t *testing.T) {
+	img := g.Render(sampleEmpty().view, frameWidth, frameHeight, 1)
+	if img == nil {
+		t.Fatal("nil")
+	}
+	want := g.Hex(HexAccent)
+	if !hasNear(img, int(want.R), int(want.G), int(want.B), 8) {
+		t.Fatal("primary did not paint the accent token")
+	}
+	states := g.Render(samplePrimaryStates().view, 880, 220, 1)
+	if states == nil {
+		t.Fatal("nil states")
+	}
+	for _, hex := range []string{HexAccent, HexAccentHover, HexAccentPressed, HexAccentDisabled} {
+		c := g.Hex(hex)
+		if !hasNear(states, int(c.R), int(c.G), int(c.B), 6) {
+			t.Fatalf("primary collage missing %s", hex)
+		}
+	}
+}
+
+func TestPrimaryHoverPressed(t *testing.T) {
+	tt := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	r, ok := tt.Find("开始听")
+	if !ok {
+		t.Fatal("no primary")
+	}
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.Move(x, y)
+	hover := g.Hex(HexAccentHover)
+	if !hasNear(tt.Image(), int(hover.R), int(hover.G), int(hover.B), 8) {
+		t.Fatal("hover did not paint accent.hover")
+	}
+	tt.Press(x, y)
+	pressed := g.Hex(HexAccentPressed)
+	if !hasNear(tt.Image(), int(pressed.R), int(pressed.G), int(pressed.B), 8) {
+		t.Fatal("pressed did not paint accent.pressed")
+	}
+	tt.Release(x, y)
+}
+
+func TestPrimaryFocusRing(t *testing.T) {
+	tt := g.NewTester(sampleEmpty().view, frameWidth, frameHeight)
+	for i := 0; i < 8; i++ {
+		tt.Key(0, g.KeyTab)
+		if tt.Focused("开始听") {
+			break
+		}
+	}
+	if !tt.Focused("开始听") {
+		t.Fatalf("tab did not reach 开始听; texts %v", tt.Texts())
+	}
+	focus := g.Hex(HexFocus)
+	if !hasNear(tt.Image(), int(focus.R), int(focus.G), int(focus.B), 12) {
+		t.Fatal("focus ring did not paint the focus token")
+	}
+}
+
+func exactText(tt *g.Tester, s string) bool {
+	for _, text := range tt.Texts() {
+		if text == s {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNear(img *image.RGBA, r, gch, b, tol int) bool {
+	if img == nil {
+		return false
+	}
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			rr, gg, bb, _ := img.At(x, y).RGBA()
+			if near8(int(rr>>8), r, tol) && near8(int(gg>>8), gch, tol) && near8(int(bb>>8), b, tol) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func near8(got, want, tol int) bool {

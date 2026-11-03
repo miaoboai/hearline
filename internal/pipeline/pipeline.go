@@ -19,6 +19,8 @@ type Line struct {
 	Partial  bool
 	Start    time.Duration
 	End      time.Duration
+	// Slow means this sentence took long enough that the live caption lags.
+	Slow bool
 }
 
 // String is a stable text form for logs and --out files.
@@ -50,10 +52,13 @@ type Options struct {
 	MinSpeech    time.Duration
 	PartialEvery time.Duration
 	Threshold    float32
+	// Sensitivity is high, mid, or low. It applies when Threshold is 0
+	// and the chunker tracks the quiet level itself.
+	Sensitivity string
 }
 
 func (o Options) chunker() *audio.Chunker {
-	c := audio.Chunker{SampleRate: audio.SampleRate, Threshold: o.Threshold}
+	c := audio.Chunker{SampleRate: audio.SampleRate, Threshold: o.Threshold, Sensitivity: o.Sensitivity}
 	if o.MaxChunk > 0 {
 		c.MaxSpeech = int(o.MaxChunk * audio.SampleRate / time.Second)
 	}
@@ -106,55 +111,94 @@ func TranscribePCM(ctx context.Context, rec asr.Recognizer, samples []float32, s
 }
 
 // Run reads a live stream until ctx is cancelled or in closes.
-// Decode errors are returned. Partial lines are emitted when configured.
+// One worker decodes a bounded queue. A newer partial replaces the one
+// already waiting, and only its trailing window is decoded. Finals stay
+// in the queue. Decode errors are returned.
 func Run(ctx context.Context, rec asr.Recognizer, in <-chan []float32, opt Options, emit func(Line)) error {
 	if rec == nil {
 		return fmt.Errorf("nil recognizer")
 	}
+	q := newDecodeQ()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- decodeLoop(ctx, rec, q, emit)
+	}()
 	ch := opt.chunker()
-	emitSegs := func(segs []audio.Segment) error {
+	enqueue := func(segs []audio.Segment) error {
 		for _, seg := range segs {
-			if err := ctx.Err(); err != nil {
+			if err := q.push(ctx, seg); err != nil {
 				return err
 			}
-			line, err := decode(rec, seg)
-			if err != nil {
-				return err
-			}
-			if line.Text == "" || emit == nil {
-				continue
-			}
-			emit(line)
 		}
 		return nil
 	}
+	var runErr error
+loop:
 	for {
 		select {
 		case <-ctx.Done():
-			_ = emitSegs(ch.Flush())
-			return ctx.Err()
+			runErr = ctx.Err()
+			break loop
 		case buf, ok := <-in:
 			if !ok {
-				return emitSegs(ch.Flush())
+				break loop
 			}
-			if err := emitSegs(ch.Push(buf)); err != nil {
-				return err
+			if err := enqueue(ch.Push(buf)); err != nil {
+				runErr = err
+				break loop
 			}
 		}
+	}
+	if err := enqueue(ch.Flush()); err != nil && runErr == nil {
+		runErr = err
+	}
+	q.close()
+	workerErr := <-errc
+	if runErr != nil && runErr != context.Canceled {
+		return runErr
+	}
+	if workerErr != nil {
+		return workerErr
+	}
+	return runErr
+}
+
+func decodeLoop(ctx context.Context, rec asr.Recognizer, q *decodeQ, emit func(Line)) error {
+	for {
+		seg, ok := q.pop()
+		if !ok {
+			return nil
+		}
+		if ctx.Err() != nil && seg.Partial {
+			continue
+		}
+		line, err := decode(rec, seg)
+		if err != nil {
+			return err
+		}
+		if line.Text == "" || emit == nil {
+			continue
+		}
+		emit(line)
 	}
 }
 
 func decode(rec asr.Recognizer, seg audio.Segment) (Line, error) {
+	start := time.Now()
 	res, err := rec.DecodePCM(seg.Samples, audio.SampleRate)
 	if err != nil {
 		return Line{}, err
 	}
+	elapsed := time.Since(start)
+	audioDur := time.Duration(len(seg.Samples)) * time.Second / audio.SampleRate
+	slow := !seg.Partial && audioDur > 0 && elapsed > 2*time.Second && elapsed > audioDur*3/2
 	return Line{
 		Text:     res.Text,
 		Language: res.Language,
 		Partial:  seg.Partial,
 		Start:    sampleTime(seg.Start),
 		End:      sampleTime(seg.End),
+		Slow:     slow,
 	}, nil
 }
 
