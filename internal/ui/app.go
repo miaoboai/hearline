@@ -41,6 +41,8 @@ type Model struct {
 	Lines      []pipeline.Line
 	Listening  bool
 	Ready      bool
+	// follow is the line count last scrolled into view.
+	follow int
 
 	load    func() (asr.Recognizer, error)
 	capture func(context.Context, string) (<-chan []float32, error)
@@ -67,12 +69,13 @@ func Run(opt Options) error {
 	m.refresh(opt.ListSources)
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "Hearline",
-			Width:     880,
-			Height:    640,
-			MinWidth:  640,
-			MinHeight: 480,
-			Content:   mygoui.View(m.view),
+			Title:           "Hearline",
+			Width:           frameWidth,
+			Height:          frameHeight,
+			MinWidth:        920,
+			MinHeight:       640,
+			BackgroundColor: "#F3F4F6",
+			Content:         mygoui.View(m.view),
 		})
 		m.win = win
 		win.OnClosed(func() {
@@ -86,7 +89,7 @@ func Run(opt Options) error {
 
 // WritePNG renders one frame of the subtitle surface.
 func WritePNG(m *Model, path string) error {
-	img := mygoui.Render(m.view, 960, 640, 1)
+	img := mygoui.Render(m.view, frameWidth, frameHeight, 1)
 	if img == nil {
 		return fmt.Errorf("subtitle surface did not render")
 	}
@@ -250,6 +253,11 @@ func (m *Model) stop() {
 	}
 	m.Listening = false
 }
+
+const (
+	frameWidth  = 1120
+	frameHeight = 760
+)
 
 // Snapshot is a display-only model used by the headless screenshot.
 func Snapshot(lines []pipeline.Line, source, status, llm string) *Model {

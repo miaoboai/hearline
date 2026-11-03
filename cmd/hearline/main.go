@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -177,6 +178,7 @@ func runDemo(args []string) int {
 	}
 	if *shot != "" {
 		m := ui.Snapshot(finals(all), "官方测试 WAV（zh + en）", "SenseVoice-Small Q8 · CPU · "+fmt.Sprint(cfg.ASR.Threads())+" threads", llm.Describe(cfg.LLM))
+		m.WAV = shownPath(sensevoice.TestWav(paths.Dir, "zh.wav"))
 		if err := ui.WritePNG(m, *shot); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -197,6 +199,20 @@ func runDemo(args []string) int {
 	}
 	fmt.Fprintln(os.Stderr, "demo ok")
 	return 0
+}
+
+// shownPath prefers a path relative to the working directory so the WAV
+// field reads as a project path.
+func shownPath(p string) string {
+	base, err := os.Getwd()
+	if err != nil {
+		return p
+	}
+	rel, err := filepath.Rel(base, p)
+	if err != nil || rel == "" || strings.HasPrefix(rel, "..") {
+		return p
+	}
+	return rel
 }
 
 func runTranscribe(args []string) int {
@@ -243,6 +259,7 @@ func runTranscribe(args []string) int {
 	}
 	if *shot != "" {
 		m := ui.Snapshot(finals(lines), *wav, cfg.ASR.Engine+" · CPU", llm.Describe(cfg.LLM))
+		m.WAV = shownPath(*wav)
 		if err := ui.WritePNG(m, *shot); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
