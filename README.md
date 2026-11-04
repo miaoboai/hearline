@@ -18,7 +18,7 @@
 | 桌面 UI 壳 | **MyGo** 原生 UI（Go + GPU 绘制，不用 Electron / Flutter / Tauri / Wails） |
 | ASR | 默认 **SenseVoice-Small Q8**（sherpa-onnx `model.int8.onnx`，约 229MB，纯 CPU）。接口上预留 **Qwen3-ASR**，v0.1 不加载它 |
 | 翻译 / 纪要（LLM） | **本地优先**。v0.1 的 llama.cpp 还没链上，纪要按钮会停用并写明原因。配好 OpenAI 兼容的 `base_url` 和 `model` 之后，纪要只把已确定的文字发给远程。字幕环本身不调用 LLM |
-| 采集 | **Linux：PulseAudio，含 PipeWire 的 pulse 兼容层**（`.monitor` 为系统声）。macOS / Windows 在 v0.1 明确返回未实现，WAV 三个平台都能播 |
+| 采集 | **Linux：PulseAudio，含 PipeWire 的 pulse 兼容层**（`.monitor` 为系统声）。**macOS：Core Audio 麦克风**（系统默认输入和内置麦）。系统输出环回和 Windows WASAPI 仍未实现。WAV 三个平台都能播，只作调试 |
 | 传译输出 | 各端虚拟麦（BlackHole / VB-Cable 等，驱动不随包分发）。不属于 v0.1 |
 
 ## LLM 配置（本地优先）
@@ -141,15 +141,28 @@ SenseVoice 是离线模型，所以字幕按句出现，连续说话最长约 8 
 
 ### macOS / Windows
 
-- 识别代码与 Linux 共用 sherpa-onnx 的 Go 绑定（macOS / Windows 用各自的预编译库）。本仓库的验证在 Linux 上完成。
-- 系统声：macOS 计划用 Core Audio process tap，Windows 计划用 WASAPI loopback。v0.1 调用采集会得到明确的未实现错误。
-- WAV 识别不依赖系统声，三个平台的 `transcribe` 路径一致（非 Linux 需本机 cgo 工具链和对应的 sherpa 库）。
+- 识别代码与 Linux 共用 sherpa-onnx 的 Go 绑定（macOS / Windows 用各自的预编译库）。本仓库的自动测试在 Linux 上跑。macOS 麦克风要在 Mac 上编译（cgo + Core Audio）。
+- **麦克风**：`hearline sources` 列出输入设备，`Kind` 为 `mic`，名称来自系统（例如「麦克风 · MacBook Air麦克风」）。窗口选中它之后「开始听」会采集并送进识别。没有系统声环回不会再让空闲窗口停在「出错 / 无法读取这个文件」。
+- **权限**：链接时把 `internal/audio/Info.plist` 写进 `__TEXT,__info_plist`，里面有 `NSMicrophoneUsageDescription`。本机先做一次 ad-hoc 签名，TCC 才能记住授权：`codesign --force --sign - --identifier com.miaoboai.hearline ./bin/hearline`。从终端启动时，系统可能把授权算在「终端」而不是 Hearline 上。拒绝后界面是「没有麦克风/系统声权限」，到「系统设置 → 隐私与安全性 → 麦克风」打开 Hearline 或启动它的终端。
+- **系统声环回**（Core Audio process tap）和 **Windows WASAPI** 仍未实现。macOS 不会造一个假的系统声源。
+- `transcribe --wav` 不依赖麦克风，三个平台路径一致（非 Linux 需本机 cgo 工具链和对应的 sherpa 库）。
+
+在 Mac 上确认：
+
+```bash
+go build -o bin/hearline ./cmd/hearline
+codesign --force --sign - --identifier com.miaoboai.hearline ./bin/hearline
+./bin/hearline sources
+# mic    source:<设备 UID>    麦克风 · MacBook Air麦克风
+./bin/hearline
+# 模型就绪后是空舞台，不是「出错」。选中麦克风，按「开始听」，说话，舞台上出现确定句。
+```
 
 ## 代码布局
 
 ```
 cmd/hearline              窗口、demo、transcribe、notes、download-model
-internal/audio            WAV、能量切句（含自适应底噪）、Linux Pulse 采集、其它 OS 的缺口
+internal/audio            WAV、能量切句（含自适应底噪）、Linux Pulse、macOS Core Audio 麦克风
 internal/asr              Recognizer 接口
 internal/asr/sensevoice   SenseVoice-Small Q8 下载与 sherpa-onnx CPU 推理
 internal/asr/mock         无模型时的字幕接线
@@ -168,7 +181,7 @@ internal/ui               MyGo 窗口；无显示器时也能画 PNG
 ### 一期 · 桌面本地听写与字幕（本分支在做的范围）
 
 - MyGo 单窗口：字幕舞台、设置、纪要
-- Linux 系统声 / 麦克风（Pulse / PipeWire）；macOS、Windows 采集仍是明确缺口
+- Linux 系统声 / 麦克风（Pulse / PipeWire）；macOS 麦克风（Core Audio）。macOS 系统声环回和 Windows 采集仍是明确缺口
 - SenseVoice-Small Q8，CPU，按句解码；半句只解尾窗；灵敏度可调；线程最多 4
 - 无模型时可用 `--engine mock` 看字幕是否在动
 - 确定的句子可导出 TXT / SRT。远程纪要配齐后可以整理；本地 llama.cpp 仍未接入，按钮保持停用
@@ -196,7 +209,7 @@ internal/ui               MyGo 窗口；无显示器时也能画 PNG
 
 - SenseVoice 在 sherpa-onnx 里是离线模型，v0.1 用切句模拟实时，不是 token 级流式。
 - 打开 ITN 时英文样例可能把 “gold” 记成 “code”。这是模型行为，不是后处理写死的。
-- 本地 LLM 推理、Qwen3-ASR、macOS 系统声、Windows WASAPI 都还没接。正在听时关掉窗口会先确认，确认后停止采集。没有独立的停靠窗。
+- 本地 LLM 推理、Qwen3-ASR、macOS 系统声环回、Windows WASAPI 都还没接。macOS 可以听本机麦克风。正在听时关掉窗口会先确认，确认后停止采集。没有独立的停靠窗。
 - 参考客户端 `client-pulse-vcam` 未能读取，因此没有照搬它的托盘或预览实现。
 
 ## 许可

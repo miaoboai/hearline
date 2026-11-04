@@ -1,7 +1,8 @@
 // Package audio captures mono PCM and splits it into utterances.
 // Linux talks to PulseAudio, including PipeWire's Pulse compatibility.
-// macOS and Windows return an explicit gap for system audio; WAV input
-// works on every OS.
+// macOS captures microphone input through Core Audio. System-output
+// loopback is not implemented there, and Windows still has no capture
+// backend. WAV input works on every OS.
 package audio
 
 import (
@@ -22,8 +23,9 @@ type Source struct {
 }
 
 // List returns live capture devices. On Linux a failure to reach
-// PulseAudio/PipeWire is returned with an empty list; WAV playback does
-// not need a device.
+// PulseAudio/PipeWire is returned with an empty list. On macOS the list
+// is Core Audio inputs; a missing system-output loopback is not an error
+// and does not invent a system source. WAV playback does not need a device.
 func List() ([]Source, error) {
 	return systemSources()
 }

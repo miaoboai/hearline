@@ -68,6 +68,14 @@ func Classify(msg string) string {
 		strings.Contains(low, "invalid model"),
 		strings.Contains(msg, "损坏"):
 		return ModelUnreadable
+	case strings.Contains(low, "pulse"),
+		strings.Contains(low, "pipewire"),
+		strings.Contains(low, "connection refused"),
+		strings.Contains(low, "wasapi"),
+		strings.Contains(low, "core audio"),
+		strings.Contains(low, "coreaudio"),
+		strings.Contains(msg, "未实现"):
+		return CaptureUnavailable
 	case strings.Contains(low, "wav"),
 		strings.Contains(low, "riff"),
 		strings.Contains(low, "audio format"),
@@ -77,13 +85,6 @@ func Classify(msg string) string {
 		strings.Contains(low, "onnx"),
 		strings.Contains(msg, "模型"):
 		return ModelMissing
-	case strings.Contains(low, "pulse"),
-		strings.Contains(low, "pipewire"),
-		strings.Contains(low, "connection refused"),
-		strings.Contains(low, "wasapi"),
-		strings.Contains(low, "core audio"),
-		strings.Contains(msg, "未实现"):
-		return CaptureUnavailable
 	default:
 		return ""
 	}
