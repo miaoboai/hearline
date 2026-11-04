@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/egoist/mygo v0.7.4
+	github.com/gen2brain/malgo v0.11.23
 	github.com/jfreymuth/pulse v0.1.3
 	github.com/k2-fsa/sherpa-onnx-go/v2 v2.0.1
 )

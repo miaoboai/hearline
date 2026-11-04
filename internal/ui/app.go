@@ -251,8 +251,11 @@ func (m *Model) refresh(list func() ([]audio.Source, error)) {
 	}
 	if err != nil {
 		m.DeviceNote = err.Error()
+		fmt.Fprintf(os.Stderr, "sources: %s\n", err)
 		code := fault.Classify(err.Error())
-		if code == "" {
+		// A device list is not a file read. The old macOS gap mentioned WAV
+		// as a workaround and was mislabeled 「无法读取这个文件」.
+		if code != fault.Permission {
 			code = fault.CaptureUnavailable
 		}
 		m.setFault(code)
@@ -332,7 +335,9 @@ func (m *Model) session(ctx context.Context, id string) {
 	}()
 	ch, err := m.capture(ctx, id)
 	if err != nil {
-		m.reportCapture(id, err.Error())
+		if ctx.Err() == nil {
+			m.reportCapture(id, err.Error())
+		}
 		return
 	}
 	err = pipeline.Run(ctx, m.rec, ch, m.chunk, func(line pipeline.Line) {

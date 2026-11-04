@@ -73,7 +73,7 @@ func usage() {
   hearline demo                  用官方 zh.wav / en.wav 跑通识别
   hearline transcribe --wav FILE 识别一个 WAV，把字幕打到标准输出
   hearline notes --wav FILE      导出确定的句子；远程纪要配好后会一并写入
-  hearline sources               列出 Pulse/PipeWire 音源
+  hearline sources               列出本机音源（Linux：Pulse/PipeWire；macOS：麦克风）
   hearline config init           写出 ~/.config/hearline/config.json（0600）
   hearline version
 
@@ -397,7 +397,7 @@ func runSources() int {
 		fmt.Fprintln(os.Stderr, err)
 	}
 	if len(list) == 0 {
-		fmt.Println("(no live sources; WAV files still work)")
+		fmt.Println("(no live sources)")
 		return 0
 	}
 	for _, s := range list {

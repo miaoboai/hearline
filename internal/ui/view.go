@@ -346,6 +346,17 @@ func (m *Model) currentLine(c *g.Context, line pipeline.Line) {
 	})
 }
 
+func (m *Model) chooseWAV(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	m.WAV = path
+	m.FileName = filepath.Base(path)
+	m.DockNote = ""
+	m.clearFault(fault.FileInvalid)
+}
+
 func (m *Model) browse() {
 	win := m.win
 	go func() {
@@ -361,10 +372,7 @@ func (m *Model) browse() {
 			if err != nil || len(paths) == 0 {
 				return
 			}
-			m.WAV = paths[0]
-			m.FileName = filepath.Base(paths[0])
-			m.DockNote = ""
-			m.clearFault(fault.FileInvalid)
+			m.chooseWAV(paths[0])
 		})
 	}()
 }
