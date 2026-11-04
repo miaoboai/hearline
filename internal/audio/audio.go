@@ -1,7 +1,8 @@
 // Package audio captures mono PCM and splits it into utterances.
 // Linux talks to PulseAudio, including PipeWire's Pulse compatibility.
-// macOS and Windows return an explicit gap for system audio; WAV input
-// works on every OS.
+// macOS lists microphones via ffmpeg AVFoundation; system loopback is still
+// a documented gap. Windows returns an explicit gap for live capture. WAV
+// input works on every OS.
 package audio
 
 import (

@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package audio
 
@@ -21,11 +21,9 @@ func captureSystem(ctx context.Context, sourceName string) (<-chan []float32, er
 
 func platformGap() string {
 	switch runtime.GOOS {
-	case "darwin":
-		return "macOS 系统声采集尚未实现：v0.1 计划用 Core Audio process tap（系统输出环回）。当前请使用 WAV 音源（hearline transcribe --wav）"
 	case "windows":
-		return "Windows 系统声采集尚未实现：v0.1 计划用 WASAPI loopback。当前请使用 WAV 音源（hearline transcribe --wav）"
+		return "Windows 系统声采集尚未实现：v0.1 计划用 WASAPI loopback。当前请使用麦克风或 WAV 音源"
 	default:
-		return runtime.GOOS + " 没有系统声采集实现。当前请使用 WAV 音源"
+		return runtime.GOOS + " 没有系统声采集实现"
 	}
 }

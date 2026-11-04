@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/png"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -268,10 +269,25 @@ func prefer(sources []audio.Source, labels []string) string {
 			return labels[i]
 		}
 	}
+	// Prefer the built-in MacBook mic when several inputs are present.
+	for i, s := range sources {
+		if s.Kind == "mic" && (containsFold(s.Name, "MacBook") || containsFold(s.Name, "Built-in")) {
+			return labels[i]
+		}
+	}
+	for i, s := range sources {
+		if s.Kind == "mic" {
+			return labels[i]
+		}
+	}
 	if len(labels) > 0 {
 		return labels[0]
 	}
 	return ""
+}
+
+func containsFold(s, sub string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
 
 func contains(list []string, s string) bool {

@@ -56,8 +56,10 @@ func Classify(msg string) string {
 	switch {
 	case strings.Contains(low, "permission"),
 		strings.Contains(low, "denied"),
+		strings.Contains(low, "not authorized"),
 		strings.Contains(low, "access"),
-		strings.Contains(msg, "权限"):
+		strings.Contains(msg, "权限"),
+		strings.Contains(msg, "打开麦克风"):
 		return Permission
 	case strings.Contains(low, "no such"),
 		strings.Contains(low, "not found"),
